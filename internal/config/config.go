@@ -96,39 +96,9 @@ func Load() (Config, error) {
 
 func (c Config) Validate() error {
 	var problems []string
-
-	if c.NodeID == "" {
-		problems = append(problems, "NODE_ID must resolve to a non-empty value")
-	}
-	if c.VaultAddr == "" {
-		problems = append(problems, "VAULT_ADDR is required")
-	}
-	if c.VaultToken == "" && c.VaultTokenFile == "" {
-		problems = append(problems, "VAULT_TOKEN or VAULT_TOKEN_FILE is required")
-	}
-	if c.ConsulAddr == "" {
-		problems = append(problems, "CONSUL_ADDR is required")
-	}
-	if c.ConsulLockKey == "" {
-		problems = append(problems, "CONSUL_LOCK_KEY is required")
-	}
-	if c.BackupSchedule <= 0 {
-		problems = append(problems, "BACKUP_SCHEDULE is required")
-	}
-	if c.BackupLocation == "" {
-		problems = append(problems, "BACKUP_LOCATION is required")
-	} else if !filepath.IsAbs(c.BackupLocation) {
-		problems = append(problems, "BACKUP_LOCATION must be an absolute path")
-	}
-	if !filepath.IsAbs(c.ScratchDir) {
-		problems = append(problems, "SCRATCH_DIR must be an absolute path")
-	}
-	if c.RetentionCount < 0 {
-		problems = append(problems, "RETENTION_COUNT must be zero or greater")
-	}
-	if c.RetentionMaxAge < 0 {
-		problems = append(problems, "RETENTION_MAX_AGE must be zero or positive")
-	}
+	c.validateRequiredFields(&problems)
+	c.validatePaths(&problems)
+	c.validateRetention(&problems)
 	if c.ProbeInterval <= 0 {
 		problems = append(problems, "PROBE_INTERVAL must be greater than zero")
 	}
@@ -141,6 +111,48 @@ func (c Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c Config) validateRequiredFields(problems *[]string) {
+	if c.NodeID == "" {
+		*problems = append(*problems, "NODE_ID must resolve to a non-empty value")
+	}
+	if c.VaultAddr == "" {
+		*problems = append(*problems, "VAULT_ADDR is required")
+	}
+	if c.VaultToken == "" && c.VaultTokenFile == "" {
+		*problems = append(*problems, "VAULT_TOKEN or VAULT_TOKEN_FILE is required")
+	}
+	if c.ConsulAddr == "" {
+		*problems = append(*problems, "CONSUL_ADDR is required")
+	}
+	if c.ConsulLockKey == "" {
+		*problems = append(*problems, "CONSUL_LOCK_KEY is required")
+	}
+	if c.BackupSchedule <= 0 {
+		*problems = append(*problems, "BACKUP_SCHEDULE is required")
+	}
+}
+
+func (c Config) validatePaths(problems *[]string) {
+	if c.BackupLocation == "" {
+		*problems = append(*problems, "BACKUP_LOCATION is required")
+	}
+	if c.BackupLocation != "" && !filepath.IsAbs(c.BackupLocation) {
+		*problems = append(*problems, "BACKUP_LOCATION must be an absolute path")
+	}
+	if !filepath.IsAbs(c.ScratchDir) {
+		*problems = append(*problems, "SCRATCH_DIR must be an absolute path")
+	}
+}
+
+func (c Config) validateRetention(problems *[]string) {
+	if c.RetentionCount < 0 {
+		*problems = append(*problems, "RETENTION_COUNT must be zero or greater")
+	}
+	if c.RetentionMaxAge < 0 {
+		*problems = append(*problems, "RETENTION_MAX_AGE must be zero or positive")
+	}
 }
 
 func hostname() string {

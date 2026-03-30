@@ -19,22 +19,19 @@ type atomicFile interface {
 	Close() error
 }
 
-func osOpenFile(path string) (io.ReadCloser, error) {
-	return os.Open(path)
-}
-
 func osCreateTempFile(dir string, pattern string) (atomicFile, error) {
 	return os.CreateTemp(dir, pattern)
 }
 
 var (
 	makeDir         = os.MkdirAll
-	openFile        = osOpenFile
+	openFile        = os.Open
 	createTempFile  = osCreateTempFile
 	removeFile      = os.Remove
 	renameFile      = os.Rename
 	walkDir         = filepath.WalkDir
 	relativePath    = filepath.Rel
+	closeSourceFile = func(file *os.File) error { return file.Close() }
 )
 
 type Object struct {
@@ -90,7 +87,7 @@ func (d *FileDestination) UploadFile(ctx context.Context, name string, sourcePat
 		_, err := io.Copy(destination, source)
 		return err
 	})
-	closeErr := source.Close()
+	closeErr := closeSourceFile(source)
 	if writeErr != nil {
 		return writeErr
 	}

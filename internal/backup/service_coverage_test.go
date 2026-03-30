@@ -355,6 +355,21 @@ func TestCleanupScratchFileIgnoresCleanupErrors(t *testing.T) {
 	service.cleanupScratchFile(&stubScratchFile{name: "scratch", closeErr: errors.New("boom")}, "scratch")
 }
 
+func TestWithinRetentionPrefix(t *testing.T) {
+	if !withinRetentionPrefix(".", "shared/unrelated.snap") {
+		t.Fatal("expected dot prefix to match all objects")
+	}
+	if !withinRetentionPrefix("", "shared/unrelated.snap") {
+		t.Fatal("expected empty prefix to match all objects")
+	}
+	if !withinRetentionPrefix("snapshots", "snapshots/old.snap") {
+		t.Fatal("expected snapshots prefix to match nested object")
+	}
+	if withinRetentionPrefix("snapshots", "shared/unrelated.snap") {
+		t.Fatal("expected unrelated object to be excluded")
+	}
+}
+
 func TestScratchArtifactPath(t *testing.T) {
 	if got := ScratchArtifactPath("/tmp/scratch", "snapshots/path/file.snap"); got != "/tmp/scratch/file.snap" {
 		t.Fatalf("unexpected scratch path %q", got)

@@ -228,39 +228,55 @@ func (s *Service) applyRetention(prefix string) error {
 	if err != nil {
 		return err
 	}
-	scopedPrefix := path.Clean(prefix)
-	snapshots := make([]storage.Object, 0)
-	for _, object := range objects {
-		if !strings.HasSuffix(object.Name, ".snap") {
-			continue
-		}
-		if scopedPrefix != "." && scopedPrefix != "" {
-			if object.Name != scopedPrefix && !strings.HasPrefix(object.Name, scopedPrefix+"/") {
-				continue
-			}
-		}
-		if strings.HasSuffix(object.Name, ".snap") {
-			snapshots = append(snapshots, object)
-		}
-	}
+	snapshots := s.retentionSnapshots(prefix, objects)
 	sort.Slice(snapshots, func(i, j int) bool {
 		return snapshots[i].ModTime.After(snapshots[j].ModTime)
 	})
 
 	for index, object := range snapshots {
-		deleteForCount := s.retentionCount > 0 && index >= s.retentionCount
-		deleteForAge := s.retentionMaxAge > 0 && time.Since(object.ModTime) > s.retentionMaxAge
-		if !deleteForCount && !deleteForAge {
+		if !s.shouldDeleteForRetention(index, object.ModTime) {
 			continue
 		}
-		if err := s.destination.Delete(object.Name); err != nil {
-			return err
-		}
-		if err := s.destination.Delete(object.Name + ".metadata.json"); err != nil {
+		if err := s.deleteRetentionObject(object.Name); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Service) retentionSnapshots(prefix string, objects []storage.Object) []storage.Object {
+	scopedPrefix := path.Clean(prefix)
+	snapshots := make([]storage.Object, 0, len(objects))
+	for _, object := range objects {
+		if !strings.HasSuffix(object.Name, ".snap") {
+			continue
+		}
+		if !withinRetentionPrefix(scopedPrefix, object.Name) {
+			continue
+		}
+		snapshots = append(snapshots, object)
+	}
+	return snapshots
+}
+
+func withinRetentionPrefix(prefix string, objectName string) bool {
+	if prefix == "." || prefix == "" {
+		return true
+	}
+	return objectName == prefix || strings.HasPrefix(objectName, prefix+"/")
+}
+
+func (s *Service) shouldDeleteForRetention(index int, modTime time.Time) bool {
+	deleteForCount := s.retentionCount > 0 && index >= s.retentionCount
+	deleteForAge := s.retentionMaxAge > 0 && time.Since(modTime) > s.retentionMaxAge
+	return deleteForCount || deleteForAge
+}
+
+func (s *Service) deleteRetentionObject(objectName string) error {
+	if err := s.destination.Delete(objectName); err != nil {
+		return err
+	}
+	return s.destination.Delete(objectName + ".metadata.json")
 }
 
 var ErrNoLogger = errors.New("logger is required")

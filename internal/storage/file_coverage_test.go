@@ -20,25 +20,6 @@ type fakeAtomicTempFile struct {
 	closeFn  func() error
 }
 
-type fakeReadCloser struct {
-	data     []byte
-	offset   int
-	closeErr error
-}
-
-func (f *fakeReadCloser) Read(p []byte) (int, error) {
-	if f.offset >= len(f.data) {
-		return 0, io.EOF
-	}
-	n := copy(p, f.data[f.offset:])
-	f.offset += n
-	return n, nil
-}
-
-func (f *fakeReadCloser) Close() error {
-	return f.closeErr
-}
-
 func (f *fakeAtomicTempFile) Write(p []byte) (int, error) {
 	if f.writeErr != nil {
 		return 0, f.writeErr
@@ -82,12 +63,13 @@ func (fakeFileInfo) Sys() any           { return nil }
 
 func restoreStorageHooks() {
 	makeDir = os.MkdirAll
-	openFile = osOpenFile
+	openFile = os.Open
 	createTempFile = osCreateTempFile
 	removeFile = os.Remove
 	renameFile = os.Rename
 	walkDir = filepath.WalkDir
 	relativePath = filepath.Rel
+	closeSourceFile = func(file *os.File) error { return file.Close() }
 }
 
 func TestCheck(t *testing.T) {
@@ -141,7 +123,7 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-func TestUploadFileAndBytesErrorPaths(t *testing.T) {
+func TestUploadFileErrorPaths(t *testing.T) {
 	restoreStorageHooks()
 	t.Cleanup(restoreStorageHooks)
 
@@ -151,13 +133,7 @@ func TestUploadFileAndBytesErrorPaths(t *testing.T) {
 	if err := destination.UploadFile(ctx, "file.snap", "source"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected canceled context, got %v", err)
 	}
-	if err := destination.UploadBytes(ctx, "file.snap", []byte("data")); !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected canceled context, got %v", err)
-	}
 	if err := destination.UploadFile(context.Background(), "../file.snap", "source"); err == nil {
-		t.Fatal("expected traversal error")
-	}
-	if err := destination.UploadBytes(context.Background(), "../file.snap", []byte("data")); err == nil {
 		t.Fatal("expected traversal error")
 	}
 
@@ -165,9 +141,6 @@ func TestUploadFileAndBytesErrorPaths(t *testing.T) {
 		return errors.New("boom")
 	}
 	if err := destination.UploadFile(context.Background(), "prod/file.snap", "source"); err == nil || !strings.Contains(err.Error(), "create destination directory") {
-		t.Fatalf("expected mkdir error, got %v", err)
-	}
-	if err := destination.UploadBytes(context.Background(), "prod/file.snap", []byte("data")); err == nil || !strings.Contains(err.Error(), "create destination directory") {
 		t.Fatalf("expected mkdir error, got %v", err)
 	}
 
@@ -189,17 +162,33 @@ func TestUploadFileAndBytesErrorPaths(t *testing.T) {
 	}
 
 	restoreStorageHooks()
-	openFile = func(string) (io.ReadCloser, error) {
-		return &fakeReadCloser{data: []byte("data"), closeErr: errors.New("boom")}, nil
-	}
-	createTempFile = func(string, string) (atomicFile, error) {
-		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "temp")}, nil
-	}
-	renameFile = func(string, string) error {
-		return nil
+	closeSourceFile = func(*os.File) error {
+		return errors.New("boom")
 	}
 	if err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath); err == nil || !strings.Contains(err.Error(), "close source artifact") {
 		t.Fatalf("expected source close error, got %v", err)
+	}
+}
+
+func TestUploadBytesErrorPaths(t *testing.T) {
+	restoreStorageHooks()
+	t.Cleanup(restoreStorageHooks)
+
+	destination := NewFileDestination(t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := destination.UploadBytes(ctx, "file.snap", []byte("data")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled context, got %v", err)
+	}
+	if err := destination.UploadBytes(context.Background(), "../file.snap", []byte("data")); err == nil {
+		t.Fatal("expected traversal error")
+	}
+
+	makeDir = func(string, os.FileMode) error {
+		return errors.New("boom")
+	}
+	if err := destination.UploadBytes(context.Background(), "prod/file.snap", []byte("data")); err == nil || !strings.Contains(err.Error(), "create destination directory") {
+		t.Fatalf("expected mkdir error, got %v", err)
 	}
 }
 
