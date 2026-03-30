@@ -20,6 +20,23 @@ type tokenTransport struct {
 	tokens TokenSource
 }
 
+type leaderStatus interface {
+	Leader() (string, error)
+}
+
+type lockHandle interface {
+	Lock(stopCh <-chan struct{}) (<-chan struct{}, error)
+	Unlock() error
+}
+
+type lockClient interface {
+	LockOpts(opts *consulapi.LockOptions) (lockHandle, error)
+}
+
+type consulLockClient struct {
+	client *consulapi.Client
+}
+
 func NewClient(address string, tokens TokenSource) (*consulapi.Client, error) {
 	config := consulapi.DefaultConfig()
 	config.Address = address
@@ -45,7 +62,11 @@ func (t tokenTransport) RoundTrip(request *http.Request) (*http.Response, error)
 }
 
 func Check(ctx context.Context, client *consulapi.Client) error {
-	leader, err := client.Status().Leader()
+	return checkStatus(ctx, client.Status())
+}
+
+func checkStatus(ctx context.Context, status leaderStatus) error {
+	leader, err := status.Leader()
 	if err != nil {
 		return fmt.Errorf("query consul leader: %w", err)
 	}
@@ -61,7 +82,7 @@ func Check(ctx context.Context, client *consulapi.Client) error {
 }
 
 type Elector struct {
-	client     *consulapi.Client
+	client     lockClient
 	lockKey    string
 	nodeID     string
 	sessionTTL time.Duration
@@ -69,6 +90,10 @@ type Elector struct {
 }
 
 func NewElector(client *consulapi.Client, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
+	return newElector(consulLockClient{client: client}, lockKey, nodeID, sessionTTL, lockWait)
+}
+
+func newElector(client lockClient, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
 	return &Elector{client: client, lockKey: lockKey, nodeID: nodeID, sessionTTL: sessionTTL, lockWait: lockWait}
 }
 
@@ -116,6 +141,10 @@ func (e *Elector) Run(ctx context.Context, onLeadership func(context.Context) er
 			return callbackErr
 		}
 	}
+}
+
+func (c consulLockClient) LockOpts(opts *consulapi.LockOptions) (lockHandle, error) {
+	return c.client.LockOpts(opts)
 }
 
 func DrainBody(response *http.Response) {

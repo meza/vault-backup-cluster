@@ -102,3 +102,70 @@ func TestMetricsIncludesBackupAttemptCount(t *testing.T) {
 		t.Fatalf("expected backup attempt metric, got %q", metrics)
 	}
 }
+
+func TestSnapshotTracksLeaderAttemptAndDependencyDetails(t *testing.T) {
+	store := New("node-a")
+	leaderSince := time.Date(2026, time.March, 30, 11, 0, 0, 0, time.UTC)
+	attemptAt := leaderSince.Add(5 * time.Minute)
+	store.SetLeader(true, leaderSince)
+	store.MarkAttempt(attemptAt)
+	store.SetDependency("vault", true, "", leaderSince)
+	store.SetDependency("consul", false, " down ", leaderSince)
+
+	snapshot := store.Snapshot()
+	if !snapshot.Leader {
+		t.Fatal("expected leader flag to be true")
+	}
+	if snapshot.LeaderSince == nil || !snapshot.LeaderSince.Equal(leaderSince) {
+		t.Fatalf("expected leader since %s, got %#v", leaderSince, snapshot.LeaderSince)
+	}
+	if snapshot.ActiveRunStartedAt == nil || !snapshot.ActiveRunStartedAt.Equal(attemptAt) {
+		t.Fatalf("expected active run start %s, got %#v", attemptAt, snapshot.ActiveRunStartedAt)
+	}
+	if len(snapshot.Dependencies) != 2 {
+		t.Fatalf("expected two dependencies, got %d", len(snapshot.Dependencies))
+	}
+	if snapshot.Dependencies[0].Name != "consul" || snapshot.Dependencies[1].Name != "vault" {
+		t.Fatalf("expected sorted dependencies, got %#v", snapshot.Dependencies)
+	}
+	if snapshot.Dependencies[0].Message != "down" {
+		t.Fatalf("expected trimmed dependency message, got %q", snapshot.Dependencies[0].Message)
+	}
+
+	store.SetLeader(false, leaderSince.Add(10*time.Minute))
+	snapshot = store.Snapshot()
+	if snapshot.Leader {
+		t.Fatal("expected leader flag to be false after release")
+	}
+	if snapshot.LeaderSince != nil {
+		t.Fatalf("expected cleared leader since, got %#v", snapshot.LeaderSince)
+	}
+	if snapshot.ActiveRunStartedAt != nil {
+		t.Fatalf("expected cleared active run, got %#v", snapshot.ActiveRunStartedAt)
+	}
+}
+
+func TestMetricsIncludeLeaderSuccessFailureAndDependencyLines(t *testing.T) {
+	store := New("node-a")
+	now := time.Date(2026, time.March, 30, 11, 30, 0, 0, time.UTC)
+	store.SetLeader(true, now)
+	store.MarkAttempt(now)
+	store.MarkSuccess(now, 64, "sum")
+	store.MarkFailure(now, "boom")
+	store.SetDependency("consul", false, "down", now)
+
+	metrics := store.Metrics()
+	for _, fragment := range []string{
+		"vault_backup_cluster_is_leader 1",
+		"vault_backup_cluster_backup_success_total 1",
+		"vault_backup_cluster_backup_failure_total 1",
+		"vault_backup_cluster_last_snapshot_size_bytes 64",
+		"vault_backup_cluster_last_success_timestamp_seconds 1774870200",
+		"vault_backup_cluster_last_failure_timestamp_seconds 1774870200",
+		"vault_backup_cluster_dependency_up{dependency=\"consul\"} 0",
+	} {
+		if !strings.Contains(metrics, fragment) {
+			t.Fatalf("expected metrics to contain %q, got %q", fragment, metrics)
+		}
+	}
+}
