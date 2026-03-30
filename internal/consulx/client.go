@@ -37,15 +37,20 @@ type consulLockClient struct {
 	client *consulapi.Client
 }
 
+const requestTimeout = 30 * time.Second
+
 func NewClient(address string, tokens TokenSource) (*consulapi.Client, error) {
 	config := consulapi.DefaultConfig()
 	config.Address = address
-	if tokens != nil {
-		config.HttpClient = &http.Client{
-			Transport: tokenTransport{base: http.DefaultTransport, tokens: tokens},
-			Timeout:   30 * time.Second,
-		}
+	httpClient, err := consulapi.NewHttpClient(config.Transport, config.TLSConfig)
+	if err != nil {
+		return nil, err
 	}
+	httpClient.Timeout = requestTimeout
+	if tokens != nil {
+		httpClient.Transport = tokenTransport{base: httpClient.Transport, tokens: tokens}
+	}
+	config.HttpClient = httpClient
 	return consulapi.NewClient(config)
 }
 

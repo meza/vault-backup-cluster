@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,18 @@ func TestNewClientAndCheckUseTokenTransport(t *testing.T) {
 	}
 	if err := Check(context.Background(), client); err != nil {
 		t.Fatalf("Check returned error: %v", err)
+	}
+}
+
+func TestNewClientSetsTimeoutWithoutTokens(t *testing.T) {
+	client, err := NewClient("http://127.0.0.1:8500", nil)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	timeout := reflect.ValueOf(client).Elem().FieldByName("config").FieldByName("HttpClient").Elem().FieldByName("Timeout").Int()
+	if timeout <= 0 {
+		t.Fatalf("expected configured timeout, got %d", timeout)
 	}
 }
 
