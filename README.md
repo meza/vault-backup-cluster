@@ -72,14 +72,31 @@ All configuration is supplied through environment variables.
 ## Build and test
 
 ```sh
-go test ./...
-go build ./cmd/vault-backup-cluster
+make test
+make build
+```
+
+## Local automation
+
+```sh
+make lint
+make vulncheck
+make licenses
+make ci
 ```
 
 ## Container image
 
 ```sh
-docker build -t vault-backup-cluster .
+make docker-build
 ```
 
 The image is built from `Dockerfile` and starts the single static binary.
+
+## CI and release automation
+
+- `.github/workflows/ci.yml` runs lint, tests, binary build, govulncheck, go-licenses, and a Docker build on pull requests and pushes to `main`
+- `.github/workflows/release.yml` runs semantic-release on pushes to `main` and calls GoReleaser to publish binaries, checksums, and Docker images
+- `.golangci.yml` defines the repository lint policy
+- `.releaserc.yml` uses the `conventionalcommits` preset for semantic-release
+- `.goreleaser.yml` publishes release artifacts and Docker images with GoReleaser

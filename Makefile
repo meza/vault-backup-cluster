@@ -6,7 +6,7 @@ GO_TOOLCHAIN := go$(GO_VERSION)
 MODULE := github.com/meza/vault-backup-cluster
 GOLANGCI_LINT_VERSION := v2.11.4
 GOVULNCHECK_VERSION := v1.1.4
-GO_LICENSES_VERSION := v2.0.1
+GO_LICENSES_VERSION := v1.6.0
 
 .PHONY: tools test build lint vulncheck licenses licenses-report docker-build ci
 
@@ -22,7 +22,7 @@ $(BIN_DIR)/govulncheck: | $(BIN_DIR)
 	GOBIN=$(BIN_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 $(BIN_DIR)/go-licenses: | $(BIN_DIR)
-	GOBIN=$(BIN_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
+	GOBIN=$(BIN_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/google/go-licenses@$(GO_LICENSES_VERSION)
 
 test:
 	go test ./...
