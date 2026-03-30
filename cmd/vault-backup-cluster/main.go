@@ -9,16 +9,34 @@ import (
 	"github.com/meza/vault-backup-cluster/internal/app"
 )
 
-func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+type appRunner interface {
+	Run(context.Context) error
+}
+
+var (
+	newApplication = func() (appRunner, error) {
+		return app.New()
+	}
+	notifyContext = signal.NotifyContext
+	logFatal      = func(v ...any) {
+		log.Fatal(v...)
+	}
+)
+
+func run() error {
+	ctx, stop := notifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	application, err := app.New()
+	application, err := newApplication()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	if err := application.Run(ctx); err != nil {
-		log.Fatal(err)
+	return application.Run(ctx)
+}
+
+func main() {
+	if err := run(); err != nil {
+		logFatal(err)
 	}
 }

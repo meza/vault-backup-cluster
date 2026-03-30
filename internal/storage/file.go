@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+type atomicFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
+var (
+	makeDir         = os.MkdirAll
+	openFile        = os.Open
+	createTempFile  = func(dir string, pattern string) (atomicFile, error) { return os.CreateTemp(dir, pattern) }
+	removeFile      = os.Remove
+	renameFile      = os.Rename
+	walkDir         = filepath.WalkDir
+	relativePath    = filepath.Rel
+)
+
 type Object struct {
 	Name    string
 	ModTime time.Time
@@ -28,16 +45,16 @@ func (d *FileDestination) Check(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(d.root, 0o750); err != nil {
+	if err := makeDir(d.root, 0o750); err != nil {
 		return fmt.Errorf("create backup location: %w", err)
 	}
-	probe, err := os.CreateTemp(d.root, ".probe-*")
+	probe, err := createTempFile(d.root, ".probe-*")
 	if err != nil {
 		return fmt.Errorf("create probe file: %w", err)
 	}
 	name := probe.Name()
 	_ = probe.Close()
-	_ = os.Remove(name)
+	_ = removeFile(name)
 	return nil
 }
 
@@ -49,15 +66,15 @@ func (d *FileDestination) UploadFile(ctx context.Context, name string, sourcePat
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o750); err != nil {
+	if err := makeDir(filepath.Dir(cleanPath), 0o750); err != nil {
 		return fmt.Errorf("create destination directory: %w", err)
 	}
-	source, err := os.Open(sourcePath)
+	source, err := openFile(sourcePath)
 	if err != nil {
 		return fmt.Errorf("open source artifact: %w", err)
 	}
 	defer source.Close()
-	return writeAtomically(ctx, cleanPath, func(destination *os.File) error {
+	return writeAtomically(ctx, cleanPath, func(destination io.Writer) error {
 		_, err := io.Copy(destination, source)
 		return err
 	})
@@ -71,10 +88,10 @@ func (d *FileDestination) UploadBytes(ctx context.Context, name string, content 
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o750); err != nil {
+	if err := makeDir(filepath.Dir(cleanPath), 0o750); err != nil {
 		return fmt.Errorf("create destination directory: %w", err)
 	}
-	return writeAtomically(ctx, cleanPath, func(destination *os.File) error {
+	return writeAtomically(ctx, cleanPath, func(destination io.Writer) error {
 		_, err := destination.Write(content)
 		return err
 	})
@@ -86,7 +103,7 @@ func (d *FileDestination) List(prefix string) ([]Object, error) {
 		return nil, err
 	}
 	entries := make([]Object, 0)
-	walkErr := filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
+	walkErr := walkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if os.IsNotExist(walkErr) {
 				return nil
@@ -100,7 +117,7 @@ func (d *FileDestination) List(prefix string) ([]Object, error) {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(d.root, path)
+		rel, err := relativePath(d.root, path)
 		if err != nil {
 			return err
 		}
@@ -139,15 +156,15 @@ func (d *FileDestination) resolve(name string) (string, error) {
 	return clean, nil
 }
 
-func writeAtomically(ctx context.Context, path string, write func(*os.File) error) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".upload-*")
+func writeAtomically(ctx context.Context, path string, write func(io.Writer) error) error {
+	temp, err := createTempFile(filepath.Dir(path), ".upload-*")
 	if err != nil {
 		return fmt.Errorf("create temp destination: %w", err)
 	}
 	tempName := temp.Name()
 	defer func() {
 		_ = temp.Close()
-		_ = os.Remove(tempName)
+		_ = removeFile(tempName)
 	}()
 	if err := write(temp); err != nil {
 		return fmt.Errorf("write destination content: %w", err)
@@ -161,7 +178,7 @@ func writeAtomically(ctx context.Context, path string, write func(*os.File) erro
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("close destination content: %w", err)
 	}
-	if err := os.Rename(tempName, path); err != nil {
+	if err := renameFile(tempName, path); err != nil {
 		return fmt.Errorf("move destination content into place: %w", err)
 	}
 	return nil

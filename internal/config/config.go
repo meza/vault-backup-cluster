@@ -22,6 +22,8 @@ const (
 	defaultRetentionCount   = 7
 )
 
+var osHostname = os.Hostname
+
 type Config struct {
 	NodeID               string
 	HTTPBindAddress      string
@@ -139,7 +141,7 @@ func (c Config) Validate() error {
 }
 
 func hostname() string {
-	name, err := os.Hostname()
+	name, err := osHostname()
 	if err != nil {
 		return "unknown"
 	}

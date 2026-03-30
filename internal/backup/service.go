@@ -21,6 +21,20 @@ import (
 	"github.com/meza/vault-backup-cluster/internal/vault"
 )
 
+type scratchFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
+var (
+	makeScratchDir   = os.MkdirAll
+	createScratchTmp = func(dir string, pattern string) (scratchFile, error) { return os.CreateTemp(dir, pattern) }
+	removeScratch    = os.Remove
+	marshalMetadata  = json.MarshalIndent
+)
+
 type SnapshotClient interface {
 	Snapshot(ctx context.Context, writer io.Writer) (vault.SnapshotResult, error)
 }
@@ -110,7 +124,7 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return err
 	}
-	if err := os.MkdirAll(s.scratchDir, 0o750); err != nil {
+	if err := makeScratchDir(s.scratchDir, 0o750); err != nil {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return fmt.Errorf("create scratch dir: %w", err)
 	}
@@ -119,7 +133,7 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return err
 	}
-	tempFile, err := os.CreateTemp(s.scratchDir, "snapshot-*.snap")
+	tempFile, err := createScratchTmp(s.scratchDir, "snapshot-*.snap")
 	if err != nil {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return fmt.Errorf("create scratch artifact: %w", err)
@@ -127,7 +141,7 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 	tempPath := tempFile.Name()
 	defer func() {
 		_ = tempFile.Close()
-		_ = os.Remove(tempPath)
+		_ = removeScratch(tempPath)
 	}()
 
 	result, err := s.vault.Snapshot(ctx, tempFile)
@@ -157,7 +171,7 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 		SHA256:       result.SHA256,
 		Result:       "success",
 	}
-	metadataContent, err := json.MarshalIndent(metadata, "", "  ")
+	metadataContent, err := marshalMetadata(metadata, "", "  ")
 	if err != nil {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return fmt.Errorf("marshal artifact metadata: %w", err)

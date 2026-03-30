@@ -24,13 +24,44 @@ type App struct {
 	cfg          config.Config
 	logger       *slog.Logger
 	state        appState
-	server       *http.Server
-	elector      *consulx.Elector
-	backup       *backup.Service
-	vaultClient  *vault.Client
+	server       httpServer
+	elector      electionRunner
+	backup       backupRunner
+	vaultClient  vaultProber
 	consulClient *consulapi.Client
-	destination  *storage.FileDestination
+	destination  destinationProber
 }
+
+type httpServer interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
+}
+
+type electionRunner interface {
+	Run(context.Context, func(context.Context) error) error
+}
+
+type backupRunner interface {
+	Run(context.Context) error
+}
+
+type vaultProber interface {
+	Health(context.Context) error
+}
+
+type destinationProber interface {
+	Check(context.Context) error
+}
+
+var (
+	loadConfig      = config.Load
+	newTokenSource  = vault.NewTokenSource
+	newVaultClient  = vault.NewClient
+	newConsulClient = consulx.NewClient
+	newBackup       = backup.NewService
+	newElector      = consulx.NewElector
+	checkConsul     = consulx.Check
+)
 
 type appState interface {
 	SetLeader(bool, time.Time)
@@ -41,34 +72,34 @@ type appState interface {
 }
 
 func New() (*App, error) {
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}))
 	stateStore := state.New(cfg.NodeID)
 
-	vaultTokens, err := vault.NewTokenSource(cfg.VaultToken, cfg.VaultTokenFile)
+	vaultTokens, err := newTokenSource(cfg.VaultToken, cfg.VaultTokenFile)
 	if err != nil {
 		return nil, err
 	}
-	vaultClient := vault.NewClient(cfg.VaultAddr, cfg.VaultRequestTimeout, vaultTokens)
-	consulTokens, err := vault.NewTokenSource(cfg.ConsulToken, cfg.ConsulTokenFile)
+	vaultClient := newVaultClient(cfg.VaultAddr, cfg.VaultRequestTimeout, vaultTokens)
+	consulTokens, err := newTokenSource(cfg.ConsulToken, cfg.ConsulTokenFile)
 	if err != nil && cfg.ConsulToken == "" && cfg.ConsulTokenFile == "" {
 		consulTokens = nil
 	} else if err != nil {
 		return nil, err
 	}
-	consulClient, err := consulx.NewClient(cfg.ConsulAddr, consulTokens)
+	consulClient, err := newConsulClient(cfg.ConsulAddr, consulTokens)
 	if err != nil {
 		return nil, err
 	}
 	destination := storage.NewFileDestination(cfg.BackupLocation)
-	backupService, err := backup.NewService(cfg.NodeID, cfg.BackupSchedule, cfg.ScratchDir, cfg.ArtifactNameTemplate, cfg.RetentionCount, cfg.RetentionMaxAge, stateStore, vaultClient, destination, logger)
+	backupService, err := newBackup(cfg.NodeID, cfg.BackupSchedule, cfg.ScratchDir, cfg.ArtifactNameTemplate, cfg.RetentionCount, cfg.RetentionMaxAge, stateStore, vaultClient, destination, logger)
 	if err != nil {
 		return nil, err
 	}
-	elector := consulx.NewElector(consulClient, cfg.ConsulLockKey, cfg.NodeID, cfg.ConsulSessionTTL, cfg.ConsulLockWait)
+	elector := newElector(consulClient, cfg.ConsulLockKey, cfg.NodeID, cfg.ConsulSessionTTL, cfg.ConsulLockWait)
 
 	app := &App{
 		cfg:          cfg,
@@ -133,7 +164,7 @@ func (a *App) runProbes(ctx context.Context) {
 	defer ticker.Stop()
 	check := func() {
 		now := time.Now().UTC()
-		if err := consulx.Check(ctx, a.consulClient); err != nil {
+		if err := checkConsul(ctx, a.consulClient); err != nil {
 			a.state.SetDependency("consul", false, err.Error(), now)
 		} else {
 			a.state.SetDependency("consul", true, "", now)
