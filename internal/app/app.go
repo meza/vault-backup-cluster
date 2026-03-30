@@ -111,7 +111,11 @@ func New() (*App, error) {
 		consulClient: consulClient,
 		destination:  destination,
 	}
-	app.server = &http.Server{Addr: cfg.HTTPBindAddress, Handler: app.routes()}
+	app.server = &http.Server{
+		Addr:              cfg.HTTPBindAddress,
+		Handler:           app.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	return app, nil
 }
 
@@ -208,16 +212,22 @@ func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"status":"ok"}`))
+		if _, err := writer.Write([]byte(`{"status":"ok"}`)); err != nil {
+			return
+		}
 	})
 	mux.HandleFunc("/readyz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		if !a.state.Ready() {
 			writer.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = writer.Write([]byte(`{"status":"degraded"}`))
+			if _, err := writer.Write([]byte(`{"status":"degraded"}`)); err != nil {
+				return
+			}
 			return
 		}
-		_, _ = writer.Write([]byte(`{"status":"ready"}`))
+		if _, err := writer.Write([]byte(`{"status":"ready"}`)); err != nil {
+			return
+		}
 	})
 	mux.HandleFunc("/status", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -226,16 +236,23 @@ func (a *App) routes() http.Handler {
 			writeJSONError(writer, http.StatusInternalServerError, err)
 			return
 		}
-		_, _ = writer.Write(payload)
+		if _, err = writer.Write(payload); err != nil {
+			return
+		}
 	})
 	mux.HandleFunc("/metrics", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		_, _ = writer.Write([]byte(a.state.Metrics()))
+		if _, err := writer.Write([]byte(a.state.Metrics())); err != nil {
+			return
+		}
 	})
 	return mux
 }
 
 func writeJSONError(writer http.ResponseWriter, statusCode int, err error) {
+	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(statusCode)
-	_ = json.NewEncoder(writer).Encode(map[string]string{"error": err.Error()})
+	if encodeErr := json.NewEncoder(writer).Encode(map[string]string{"error": err.Error()}); encodeErr != nil {
+		return
+	}
 }

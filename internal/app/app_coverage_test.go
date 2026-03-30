@@ -102,7 +102,9 @@ func healthyConsulClient(t *testing.T) *consulapi.Client {
 			t.Fatalf("unexpected path %s", request.URL.Path)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`"10.0.0.1:8300"`))
+		if _, err := writer.Write([]byte(`"10.0.0.1:8300"`)); err != nil {
+			t.Fatalf("write leader response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 
@@ -205,7 +207,7 @@ func TestNewReturnsVaultTokenError(t *testing.T) {
 		if staticToken == "vault-token" {
 			return nil, errors.New("boom")
 		}
-		return nil, nil
+		return fakeVaultTokenSource{}, nil
 	}
 
 	_, err := New()
@@ -230,7 +232,7 @@ func TestNewReturnsConsulTokenErrorWhenConfigured(t *testing.T) {
 		case "consul-token":
 			return nil, errors.New("boom")
 		default:
-			return nil, nil
+			return fakeVaultTokenSource{}, nil
 		}
 	}
 
@@ -421,6 +423,7 @@ func TestRunProbesRecordsHealthyDependencies(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	application := &App{
 		cfg:         config.Config{ProbeInterval: time.Hour},
 		logger:      testLogger(),
@@ -466,6 +469,7 @@ func TestRunProbesRecordsFailures(t *testing.T) {
 		return errors.New("consul down")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	application := &App{
 		cfg:         config.Config{ProbeInterval: time.Hour},
 		logger:      testLogger(),
@@ -504,6 +508,7 @@ func TestRunProbesRepeatsOnTicker(t *testing.T) {
 	stateStore := state.New("node-a")
 	checks := 0
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	application := &App{
 		cfg:         config.Config{ProbeInterval: time.Millisecond},
 		logger:      testLogger(),

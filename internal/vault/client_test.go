@@ -42,7 +42,9 @@ func TestSnapshotReadsTokenFileForEachRequest(t *testing.T) {
 	calls := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Header.Get("X-Vault-Token"))
-		_, _ = w.Write([]byte("snapshot"))
+		if _, err := w.Write([]byte("snapshot")); err != nil {
+			t.Fatalf("write snapshot response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -93,8 +95,8 @@ func TestNewTokenSource(t *testing.T) {
 	}
 
 	filePath := filepath.Join(t.TempDir(), "token")
-	if err := os.WriteFile(filePath, []byte("file-token"), 0o600); err != nil {
-		t.Fatalf("write token file: %v", err)
+	if writeErr := os.WriteFile(filePath, []byte("file-token"), 0o600); writeErr != nil {
+		t.Fatalf("write token file: %v", writeErr)
 	}
 	source, err = NewTokenSource("", filePath)
 	if err != nil {
@@ -145,7 +147,9 @@ func TestSnapshotErrorPaths(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte("backend failed"))
+		if _, err := w.Write([]byte("backend failed")); err != nil {
+			t.Fatalf("write backend failure response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -155,7 +159,9 @@ func TestSnapshotErrorPaths(t *testing.T) {
 	}
 
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("snapshot"))
+		if _, err := w.Write([]byte("snapshot")); err != nil {
+			t.Fatalf("write snapshot response: %v", err)
+		}
 	}))
 	defer server.Close()
 

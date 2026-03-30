@@ -49,7 +49,7 @@ func (d *recordingDestination) UploadBytes(_ context.Context, _ string, _ []byte
 }
 
 func (d *recordingDestination) List(string) ([]storage.Object, error) {
-	return nil, nil
+	return []storage.Object{}, nil
 }
 
 func (d *recordingDestination) Delete(name string) error {
@@ -78,6 +78,7 @@ func TestExecuteOnceDeletesArtifactWhenMetadataUploadFails(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The test verifies the full backup and retention path in one place.
 func TestExecuteOnceUploadsArtifactMetadataAndPrunesRetention(t *testing.T) {
 	backupRoot := t.TempDir()
 	stateStore := state.New("node-a")
@@ -89,25 +90,25 @@ func TestExecuteOnceUploadsArtifactMetadataAndPrunesRetention(t *testing.T) {
 	}
 
 	older := filepath.Join(backupRoot, "snapshots", "older.snap")
-	if err := os.MkdirAll(filepath.Dir(older), 0o750); err != nil {
-		t.Fatalf("mkdir older artifact: %v", err)
+	if mkdirErr := os.MkdirAll(filepath.Dir(older), 0o750); mkdirErr != nil {
+		t.Fatalf("mkdir older artifact: %v", mkdirErr)
 	}
-	if err := os.WriteFile(older, []byte("old"), 0o600); err != nil {
-		t.Fatalf("write older artifact: %v", err)
+	if writeErr := os.WriteFile(older, []byte("old"), 0o600); writeErr != nil {
+		t.Fatalf("write older artifact: %v", writeErr)
 	}
-	if err := os.WriteFile(older+".metadata.json", []byte("{}"), 0o600); err != nil {
-		t.Fatalf("write older metadata: %v", err)
+	if writeErr := os.WriteFile(older+".metadata.json", []byte("{}"), 0o600); writeErr != nil {
+		t.Fatalf("write older metadata: %v", writeErr)
 	}
 	oldTime := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(older, oldTime, oldTime); err != nil {
-		t.Fatalf("chtimes older artifact: %v", err)
+	if chtimesErr := os.Chtimes(older, oldTime, oldTime); chtimesErr != nil {
+		t.Fatalf("chtimes older artifact: %v", chtimesErr)
 	}
-	if err := os.Chtimes(older+".metadata.json", oldTime, oldTime); err != nil {
-		t.Fatalf("chtimes older metadata: %v", err)
+	if chtimesErr := os.Chtimes(older+".metadata.json", oldTime, oldTime); chtimesErr != nil {
+		t.Fatalf("chtimes older metadata: %v", chtimesErr)
 	}
 
-	if err := service.ExecuteOnce(context.Background()); err != nil {
-		t.Fatalf("ExecuteOnce returned error: %v", err)
+	if executeErr := service.ExecuteOnce(context.Background()); executeErr != nil {
+		t.Fatalf("ExecuteOnce returned error: %v", executeErr)
 	}
 
 	objects, err := destination.List("snapshots")
@@ -117,11 +118,11 @@ func TestExecuteOnceUploadsArtifactMetadataAndPrunesRetention(t *testing.T) {
 	if len(objects) != 2 {
 		t.Fatalf("expected one artifact and one metadata file, got %d objects", len(objects))
 	}
-	if _, err := os.Stat(older); !os.IsNotExist(err) {
-		t.Fatalf("expected older artifact to be pruned")
+	if _, statErr := os.Stat(older); !os.IsNotExist(statErr) {
+		t.Fatal("expected older artifact to be pruned")
 	}
 	if stateStore.Snapshot().BackupSuccesses != 1 {
-		t.Fatalf("expected one successful backup")
+		t.Fatal("expected one successful backup")
 	}
 
 	var metadataPath string

@@ -2,6 +2,7 @@ package consulx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -78,7 +79,7 @@ func checkStatus(ctx context.Context, status leaderStatus) error {
 		return fmt.Errorf("query consul leader: %w", err)
 	}
 	if strings.TrimSpace(leader) == "" {
-		return fmt.Errorf("consul returned an empty leader value")
+		return errors.New("consul returned an empty leader value")
 	}
 	select {
 	case <-ctx.Done():
@@ -97,10 +98,10 @@ type Elector struct {
 }
 
 func NewElector(client *consulapi.Client, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
-	return newElector(consulLockClient{client: client}, lockKey, nodeID, sessionTTL, lockWait)
+	return buildElector(consulLockClient{client: client}, lockKey, nodeID, sessionTTL, lockWait)
 }
 
-func newElector(client lockClient, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
+func buildElector(client lockClient, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
 	return &Elector{client: client, lockKey: lockKey, nodeID: nodeID, sessionTTL: sessionTTL, lockWait: lockWait}
 }
 
@@ -141,10 +142,10 @@ func (e *Elector) Run(ctx context.Context, onLeadership func(context.Context) er
 		callbackErr := onLeadership(leaderCtx)
 		cancel()
 		<-done
-		if err := lock.Unlock(); err != nil && err != consulapi.ErrLockNotHeld {
+		if err := lock.Unlock(); err != nil && !errors.Is(err, consulapi.ErrLockNotHeld) {
 			return fmt.Errorf("release consul lock: %w", err)
 		}
-		if callbackErr != nil && callbackErr != context.Canceled {
+		if callbackErr != nil && !errors.Is(callbackErr, context.Canceled) {
 			return callbackErr
 		}
 	}
@@ -158,6 +159,10 @@ func DrainBody(response *http.Response) {
 	if response == nil || response.Body == nil {
 		return
 	}
-	_, _ = io.Copy(io.Discard, response.Body)
-	_ = response.Body.Close()
+	if _, err := io.Copy(io.Discard, response.Body); err != nil {
+		return
+	}
+	if err := response.Body.Close(); err != nil {
+		return
+	}
 }

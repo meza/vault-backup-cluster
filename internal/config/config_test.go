@@ -26,7 +26,7 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	}
 
 	if cfg.NodeID != "node-a" {
-		t.Fatalf("expected node id to be parsed")
+		t.Fatal("expected node id to be parsed")
 	}
 	if cfg.RetentionCount != 4 {
 		t.Fatalf("expected retention count 4, got %d", cfg.RetentionCount)

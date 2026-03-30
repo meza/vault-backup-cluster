@@ -172,6 +172,7 @@ func optionalDurationEnv(key string) (time.Duration, error) {
 	return parsed, nil
 }
 
+//nolint:unparam // The fallback is part of the shared parsing helper contract used by tests and callers.
 func intEnv(key string, fallback int) (int, error) {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {

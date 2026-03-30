@@ -2,7 +2,10 @@ module github.com/meza/vault-backup-cluster
 
 go 1.25.8
 
-require github.com/hashicorp/consul/api v1.33.7
+require (
+	github.com/hashicorp/consul/api v1.33.7
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
+)
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect

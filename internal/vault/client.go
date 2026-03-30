@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -53,7 +54,7 @@ func NewTokenSource(staticToken string, tokenFile string) (TokenSource, error) {
 	if strings.TrimSpace(staticToken) != "" {
 		return StaticTokenSource{value: staticToken}, nil
 	}
-	return nil, fmt.Errorf("vault token source is required")
+	return nil, errors.New("vault token source is required")
 }
 
 func (s StaticTokenSource) Token() (string, error) {
@@ -67,13 +68,13 @@ func (s FileTokenSource) Token() (string, error) {
 	}
 	value := strings.TrimSpace(string(content))
 	if value == "" {
-		return "", fmt.Errorf("vault token file is empty")
+		return "", errors.New("vault token file is empty")
 	}
 	return value, nil
 }
 
 func (c *Client) Snapshot(ctx context.Context, writer io.Writer) (SnapshotResult, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/sys/storage/raft/snapshot", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/sys/storage/raft/snapshot", http.NoBody)
 	if err != nil {
 		return SnapshotResult{}, fmt.Errorf("create snapshot request: %w", err)
 	}
@@ -87,9 +88,12 @@ func (c *Client) Snapshot(ctx context.Context, writer io.Writer) (SnapshotResult
 	if err != nil {
 		return SnapshotResult{}, fmt.Errorf("request snapshot: %w", err)
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response)
 	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+		if readErr != nil {
+			return SnapshotResult{}, fmt.Errorf("read vault snapshot error response: %w", readErr)
+		}
 		return SnapshotResult{}, fmt.Errorf("vault snapshot request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -103,7 +107,7 @@ func (c *Client) Snapshot(ctx context.Context, writer io.Writer) (SnapshotResult
 
 func (c *Client) Health(ctx context.Context) error {
 	path := c.baseURL + "/v1/sys/health?standbyok=true&perfstandbyok=true"
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, path, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, path, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create vault health request: %w", err)
 	}
@@ -111,11 +115,20 @@ func (c *Client) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("request vault health: %w", err)
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response)
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("vault health returned status %d", response.StatusCode)
 	}
 	return nil
+}
+
+func closeResponseBody(response *http.Response) {
+	if response == nil || response.Body == nil {
+		return
+	}
+	if err := response.Body.Close(); err != nil {
+		return
+	}
 }
 
 func SanitizeURL(raw string) string {

@@ -54,12 +54,12 @@ func (f *fakeLock) Unlock() error {
 }
 
 type fakeTokenSource struct {
-	token string
+	value string
 	err   error
 }
 
 func (f fakeTokenSource) Token() (string, error) {
-	return f.token, f.err
+	return f.value, f.err
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -101,11 +101,13 @@ func TestNewClientAndCheckUseTokenTransport(t *testing.T) {
 			t.Fatalf("expected leader path, got %s", request.URL.Path)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`"10.0.0.1:8300"`))
+		if _, err := writer.Write([]byte(`"10.0.0.1:8300"`)); err != nil {
+			t.Fatalf("write leader response: %v", err)
+		}
 	}))
 	defer server.Close()
 
-	client, err := NewClient(server.URL, fakeTokenSource{token: " token-value "})
+	client, err := NewClient(server.URL, fakeTokenSource{value: " token-value "})
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestTokenTransportSetsTrimmedConsulToken(t *testing.T) {
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
 		}),
-		tokens: fakeTokenSource{token: " token-value \n"},
+		tokens: fakeTokenSource{value: " token-value \n"},
 	}
 
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://consul.local/v1/status/leader", nil)
@@ -167,7 +169,7 @@ func TestTokenTransportReturnsTokenError(t *testing.T) {
 	transport := tokenTransport{
 		base: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			t.Fatal("base transport should not be called when token lookup fails")
-			return nil, nil
+			return nil, errors.New("unexpected round trip")
 		}),
 		tokens: fakeTokenSource{err: errors.New("boom")},
 	}
@@ -176,7 +178,11 @@ func TestTokenTransportReturnsTokenError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "boom") {
+	response, err := transport.RoundTrip(request)
+	if response != nil {
+		DrainBody(response)
+	}
+	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected token lookup error, got %v", err)
 	}
 }
@@ -185,7 +191,7 @@ func TestElectorRunCancelsLeadershipContextAndUnlocks(t *testing.T) {
 	lost := make(chan struct{})
 	lock := &fakeLock{leadershipLost: lost}
 	client := &fakeLockClient{lock: lock}
-	elector := newElector(client, "service/vault-backup/leader", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(client, "service/vault-backup/leader", "node-a", 15*time.Second, 10*time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -228,7 +234,7 @@ func TestNewElectorUsesConsulLockClientWrapper(t *testing.T) {
 }
 
 func TestElectorRunReturnsCreateLockError(t *testing.T) {
-	elector := newElector(&fakeLockClient{err: errors.New("boom")}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(&fakeLockClient{err: errors.New("boom")}, "lock", "node-a", 15*time.Second, 10*time.Second)
 
 	err := elector.Run(context.Background(), func(context.Context) error {
 		t.Fatal("callback should not be called when lock creation fails")
@@ -240,7 +246,7 @@ func TestElectorRunReturnsCreateLockError(t *testing.T) {
 }
 
 func TestElectorRunReturnsAcquireError(t *testing.T) {
-	elector := newElector(&fakeLockClient{lock: &fakeLock{lockErr: errors.New("boom")}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{lockErr: errors.New("boom")}}, "lock", "node-a", 15*time.Second, 10*time.Second)
 
 	err := elector.Run(context.Background(), func(context.Context) error {
 		t.Fatal("callback should not be called when lock acquisition fails")
@@ -255,7 +261,7 @@ func TestElectorRunReturnsCallbackError(t *testing.T) {
 	lost := make(chan struct{})
 	lock := &fakeLock{leadershipLost: lost}
 	client := &fakeLockClient{lock: lock}
-	elector := newElector(client, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(client, "lock", "node-a", 15*time.Second, 10*time.Second)
 	callbackErr := errors.New("boom")
 
 	err := elector.Run(context.Background(), func(context.Context) error {
@@ -270,7 +276,7 @@ func TestElectorRunReturnsCallbackError(t *testing.T) {
 }
 
 func TestElectorRunReturnsNilWhenLockStopsWithoutLeadershipChannel(t *testing.T) {
-	elector := newElector(&fakeLockClient{lock: &fakeLock{}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{}}, "lock", "node-a", 15*time.Second, 10*time.Second)
 
 	err := elector.Run(context.Background(), func(context.Context) error {
 		t.Fatal("callback should not be called when no leadership channel is returned")
@@ -284,7 +290,7 @@ func TestElectorRunReturnsNilWhenLockStopsWithoutLeadershipChannel(t *testing.T)
 func TestElectorRunIgnoresLockNotHeldOnUnlock(t *testing.T) {
 	lost := make(chan struct{})
 	lock := &fakeLock{leadershipLost: lost, unlockErr: consulapi.ErrLockNotHeld}
-	elector := newElector(&fakeLockClient{lock: lock}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(&fakeLockClient{lock: lock}, "lock", "node-a", 15*time.Second, 10*time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -302,7 +308,7 @@ func TestElectorRunIgnoresLockNotHeldOnUnlock(t *testing.T) {
 func TestElectorRunReturnsUnlockError(t *testing.T) {
 	lost := make(chan struct{})
 	lock := &fakeLock{leadershipLost: lost, unlockErr: errors.New("unlock failed")}
-	elector := newElector(&fakeLockClient{lock: lock}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := buildElector(&fakeLockClient{lock: lock}, "lock", "node-a", 15*time.Second, 10*time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

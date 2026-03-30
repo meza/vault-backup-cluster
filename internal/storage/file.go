@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,8 +58,12 @@ func (d *FileDestination) Check(ctx context.Context) error {
 		return fmt.Errorf("create probe file: %w", err)
 	}
 	name := probe.Name()
-	_ = probe.Close()
-	_ = removeFile(name)
+	if err := probe.Close(); err != nil {
+		return fmt.Errorf("close probe file: %w", err)
+	}
+	if err := removeFile(name); err != nil {
+		return fmt.Errorf("remove probe file: %w", err)
+	}
 	return nil
 }
 
@@ -70,18 +75,25 @@ func (d *FileDestination) UploadFile(ctx context.Context, name string, sourcePat
 	if err != nil {
 		return err
 	}
-	if err := makeDir(filepath.Dir(cleanPath), 0o750); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
+	if mkdirErr := makeDir(filepath.Dir(cleanPath), 0o750); mkdirErr != nil {
+		return fmt.Errorf("create destination directory: %w", mkdirErr)
 	}
 	source, err := openFile(sourcePath)
 	if err != nil {
 		return fmt.Errorf("open source artifact: %w", err)
 	}
-	defer source.Close()
-	return writeAtomically(ctx, cleanPath, func(destination io.Writer) error {
+	writeErr := writeAtomically(ctx, cleanPath, func(destination io.Writer) error {
 		_, err := io.Copy(destination, source)
 		return err
 	})
+	closeErr := source.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close source artifact: %w", closeErr)
+	}
+	return nil
 }
 
 func (d *FileDestination) UploadBytes(ctx context.Context, name string, content []byte) error {
@@ -167,8 +179,12 @@ func writeAtomically(ctx context.Context, path string, write func(io.Writer) err
 	}
 	tempName := temp.Name()
 	defer func() {
-		_ = temp.Close()
-		_ = removeFile(tempName)
+		if err := temp.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			return
+		}
+		if err := removeFile(tempName); err != nil && !os.IsNotExist(err) {
+			return
+		}
 	}()
 	if err := write(temp); err != nil {
 		return fmt.Errorf("write destination content: %w", err)

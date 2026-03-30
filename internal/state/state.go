@@ -46,6 +46,7 @@ func New(nodeID string) *Store {
 	}
 }
 
+//nolint:revive // The boolean directly represents whether leadership was acquired or released.
 func (s *Store) SetLeader(leader bool, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,21 +108,21 @@ func (s *Store) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	copy := s.snap
-	copy.LeaderSince = cloneTimePointer(s.snap.LeaderSince)
-	copy.ActiveRunStartedAt = cloneTimePointer(s.snap.ActiveRunStartedAt)
-	copy.LastAttemptAt = cloneTimePointer(s.snap.LastAttemptAt)
-	copy.LastSuccessAt = cloneTimePointer(s.snap.LastSuccessAt)
-	copy.LastFailureAt = cloneTimePointer(s.snap.LastFailureAt)
-	copy.Dependencies = make([]DependencyStatus, 0, len(s.deps))
+	snapshotCopy := s.snap
+	snapshotCopy.LeaderSince = cloneTimePointer(s.snap.LeaderSince)
+	snapshotCopy.ActiveRunStartedAt = cloneTimePointer(s.snap.ActiveRunStartedAt)
+	snapshotCopy.LastAttemptAt = cloneTimePointer(s.snap.LastAttemptAt)
+	snapshotCopy.LastSuccessAt = cloneTimePointer(s.snap.LastSuccessAt)
+	snapshotCopy.LastFailureAt = cloneTimePointer(s.snap.LastFailureAt)
+	snapshotCopy.Dependencies = make([]DependencyStatus, 0, len(s.deps))
 	for _, dep := range s.deps {
 		dep.CheckedAt = cloneTimePointer(dep.CheckedAt)
-		copy.Dependencies = append(copy.Dependencies, dep)
+		snapshotCopy.Dependencies = append(snapshotCopy.Dependencies, dep)
 	}
-	sort.Slice(copy.Dependencies, func(i, j int) bool {
-		return copy.Dependencies[i].Name < copy.Dependencies[j].Name
+	sort.Slice(snapshotCopy.Dependencies, func(i, j int) bool {
+		return snapshotCopy.Dependencies[i].Name < snapshotCopy.Dependencies[j].Name
 	})
-	return copy
+	return snapshotCopy
 }
 
 func (s *Store) Ready() bool {
@@ -181,6 +182,7 @@ func (s *Store) Metrics() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+//nolint:revive // Prometheus text metrics require numeric output for boolean state.
 func boolToInt(value bool) int {
 	if value {
 		return 1
@@ -192,6 +194,6 @@ func cloneTimePointer(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
 	}
-	copy := value.UTC()
-	return &copy
+	timeCopy := value.UTC()
+	return &timeCopy
 }

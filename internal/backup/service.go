@@ -76,6 +76,7 @@ type TemplateData struct {
 	Unix      int64
 }
 
+//nolint:revive // Constructor wiring is intentionally explicit for the service's required collaborators.
 func NewService(nodeID string, every time.Duration, scratchDir string, artifactNameTemplate string, retentionCount int, retentionMaxAge time.Duration, stateStore *state.Store, snapshotClient SnapshotClient, destination Destination, logger *slog.Logger) (*Service, error) {
 	if err := ValidateLogger(logger); err != nil {
 		return nil, err
@@ -124,49 +125,55 @@ func stopTimer(timer *time.Timer) {
 	}
 }
 
+func (s *Service) recordFailure(err error) error {
+	s.state.MarkFailure(time.Now().UTC(), err.Error())
+	return err
+}
+
+func (s *Service) cleanupScratchFile(tempFile scratchFile, tempPath string) {
+	if err := tempFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+		s.logger.Debug("close scratch artifact during cleanup", "path", tempPath, "error", err)
+	}
+	if err := removeScratch(tempPath); err != nil && !os.IsNotExist(err) {
+		s.logger.Warn("remove scratch artifact during cleanup", "path", tempPath, "error", err)
+	}
+}
+
+//nolint:revive // The backup flow is kept linear so state transitions and cleanup stay in one place.
 func (s *Service) ExecuteOnce(ctx context.Context) error {
 	startedAt := time.Now().UTC()
 	s.state.MarkAttempt(startedAt)
 	if err := s.destination.Check(ctx); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		return s.recordFailure(err)
 	}
 	if err := makeScratchDir(s.scratchDir, 0o750); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return fmt.Errorf("create scratch dir: %w", err)
+		return s.recordFailure(fmt.Errorf("create scratch dir: %w", err))
 	}
 	artifactName, err := s.renderArtifactName(startedAt)
 	if err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		return s.recordFailure(err)
 	}
 	tempFile, err := createScratchTmp(s.scratchDir, "snapshot-*.snap")
 	if err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return fmt.Errorf("create scratch artifact: %w", err)
+		return s.recordFailure(fmt.Errorf("create scratch artifact: %w", err))
 	}
 	tempPath := tempFile.Name()
 	defer func() {
-		_ = tempFile.Close()
-		_ = removeScratch(tempPath)
+		s.cleanupScratchFile(tempFile, tempPath)
 	}()
 
 	result, err := s.vault.Snapshot(ctx, tempFile)
 	if err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		return s.recordFailure(err)
 	}
-	if err := tempFile.Sync(); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return fmt.Errorf("sync scratch artifact: %w", err)
+	if syncErr := tempFile.Sync(); syncErr != nil {
+		return s.recordFailure(fmt.Errorf("sync scratch artifact: %w", syncErr))
 	}
-	if err := tempFile.Close(); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return fmt.Errorf("close scratch artifact: %w", err)
+	if closeErr := tempFile.Close(); closeErr != nil {
+		return s.recordFailure(fmt.Errorf("close scratch artifact: %w", closeErr))
 	}
-	if err := ctx.Err(); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return s.recordFailure(ctxErr)
 	}
 
 	metadata := Metadata{
@@ -180,21 +187,19 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 	}
 	metadataContent, err := marshalMetadata(metadata, "", "  ")
 	if err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return fmt.Errorf("marshal artifact metadata: %w", err)
+		return s.recordFailure(fmt.Errorf("marshal artifact metadata: %w", err))
 	}
 	if err := s.destination.UploadFile(ctx, artifactName, tempPath); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		return s.recordFailure(err)
 	}
 	if err := s.destination.UploadBytes(ctx, artifactName+".metadata.json", metadataContent); err != nil {
-		_ = s.destination.Delete(artifactName)
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		if deleteErr := s.destination.Delete(artifactName); deleteErr != nil {
+			s.logger.Warn("cleanup uploaded artifact after metadata failure", "artifact", artifactName, "error", deleteErr)
+		}
+		return s.recordFailure(err)
 	}
 	if err := s.applyRetention(path.Dir(artifactName)); err != nil {
-		s.state.MarkFailure(time.Now().UTC(), err.Error())
-		return err
+		return s.recordFailure(err)
 	}
 	completedAt := time.Now().UTC()
 	s.state.MarkSuccess(completedAt, result.Size, result.SHA256)
@@ -210,7 +215,7 @@ func (s *Service) renderArtifactName(now time.Time) (string, error) {
 	}
 	name := path.Clean(strings.TrimSpace(builder.String()))
 	if name == "." || name == "" {
-		return "", fmt.Errorf("render artifact name: empty result")
+		return "", errors.New("render artifact name: empty result")
 	}
 	if name == ".." || path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, "/../") {
 		return "", fmt.Errorf("render artifact name: invalid path %q", name)

@@ -21,7 +21,7 @@ func (f *fakeAppRunner) Run(ctx context.Context) error {
 
 func restoreMainHooks() {
 	newApplication = func() (appRunner, error) {
-		return nil, nil
+		return &fakeAppRunner{}, nil
 	}
 	notifyContext = func(parent context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
 		return parent, func() {}

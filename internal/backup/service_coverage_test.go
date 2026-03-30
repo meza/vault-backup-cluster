@@ -28,7 +28,9 @@ type stubSnapshotClient struct {
 
 func (s stubSnapshotClient) Snapshot(_ context.Context, writer io.Writer) (vault.SnapshotResult, error) {
 	if len(s.content) > 0 {
-		_, _ = writer.Write(s.content)
+		if _, err := writer.Write(s.content); err != nil {
+			return vault.SnapshotResult{}, err
+		}
 	}
 	if s.afterCall != nil {
 		s.afterCall()
@@ -136,6 +138,7 @@ func TestRunHandlesCancellationAndSingleExecution(t *testing.T) {
 
 	calls := 0
 	ctx, cancel = context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	service, stateStore := newServiceForCoverage(t, stubSnapshotClient{content: []byte("snapshot"), afterCall: cancel}, &stubDestination{
 		checkFn: func(context.Context) error {
 			calls++
@@ -151,6 +154,7 @@ func TestRunHandlesCancellationAndSingleExecution(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The test keeps the backup error matrix together so the seams stay readable.
 func TestExecuteOnceErrorPaths(t *testing.T) {
 	restoreBackupHooks()
 	t.Cleanup(restoreBackupHooks)
@@ -223,6 +227,7 @@ func TestExecuteOnceErrorPaths(t *testing.T) {
 
 	restoreBackupHooks()
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	service, _ = newServiceForCoverage(t, stubSnapshotClient{content: []byte("snapshot"), afterCall: cancel}, &stubDestination{})
 	if err := service.ExecuteOnce(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected canceled context, got %v", err)
@@ -280,7 +285,7 @@ func TestApplyRetentionErrorPaths(t *testing.T) {
 }
 
 func TestScratchArtifactPath(t *testing.T) {
-	if got := ScratchArtifactPath("/tmp/scratch", "snapshots/path/file.snap"); got != filepath.Join("/tmp/scratch", "file.snap") {
+	if got := ScratchArtifactPath("/tmp/scratch", "snapshots/path/file.snap"); got != "/tmp/scratch/file.snap" {
 		t.Fatalf("unexpected scratch path %q", got)
 	}
 }

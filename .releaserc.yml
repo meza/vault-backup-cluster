@@ -1,0 +1,25 @@
+branches:
+  - main
+
+tagFormat: v${version}
+
+plugins:
+  - - "@semantic-release/commit-analyzer"
+    - preset: conventionalcommits
+      presetConfig: {}
+  - - "@semantic-release/release-notes-generator"
+    - preset: conventionalcommits
+      presetConfig: {}
+  - - "@semantic-release/changelog"
+    - changelogFile: CHANGELOG.md
+  - - "@semantic-release/git"
+    - assets:
+        - CHANGELOG.md
+      message: |-
+        chore(release): ${nextRelease.version} [skip ci]
+
+        ${nextRelease.notes}
+  - - "@semantic-release/exec"
+    - publishCmd: |-
+        printf '%s' "${nextRelease.notes}" > /tmp/release-notes.md
+        goreleaser release --clean --release-notes /tmp/release-notes.md
