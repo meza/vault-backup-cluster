@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,26 @@ func TestRoutesExposeMetricsAndDegradedReadiness(t *testing.T) {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("expected metrics to contain %q, got %q", fragment, body)
 		}
+	}
+}
+
+func TestWriteJSONErrorProducesValidJSON(t *testing.T) {
+	recorder := httptest.NewRecorder()
+
+	writeJSONError(recorder, http.StatusInternalServerError, errors.New("bad \x1f data"))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", recorder.Code)
+	}
+
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid JSON, got %v with body %q", err, recorder.Body.String())
+	}
+	if payload.Error != "bad \x1f data" {
+		t.Fatalf("expected error message to round trip, got %q", payload.Error)
 	}
 }
 

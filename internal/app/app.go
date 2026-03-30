@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -184,8 +184,7 @@ func (a *App) routes() http.Handler {
 		writer.Header().Set("Content-Type", "application/json")
 		payload, err := a.state.StatusJSON()
 		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, _ = writer.Write([]byte(fmt.Sprintf(`{"error":%q}`, err.Error())))
+			writeJSONError(writer, http.StatusInternalServerError, err)
 			return
 		}
 		_, _ = writer.Write(payload)
@@ -195,4 +194,14 @@ func (a *App) routes() http.Handler {
 		_, _ = writer.Write([]byte(a.state.Metrics()))
 	})
 	return mux
+}
+
+func writeJSONError(writer http.ResponseWriter, statusCode int, err error) {
+	writer.WriteHeader(statusCode)
+	payload, marshalErr := json.Marshal(map[string]string{"error": err.Error()})
+	if marshalErr != nil {
+		_, _ = writer.Write([]byte(`{"error":"failed to encode error response"}`))
+		return
+	}
+	_, _ = writer.Write(payload)
 }
