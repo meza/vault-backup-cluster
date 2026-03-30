@@ -167,10 +167,11 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 		return err
 	}
 	if err := s.destination.UploadBytes(ctx, artifactName+".metadata.json", metadataContent); err != nil {
+		_ = s.destination.Delete(artifactName)
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return err
 	}
-	if err := s.applyRetention(); err != nil {
+	if err := s.applyRetention(path.Dir(artifactName)); err != nil {
 		s.state.MarkFailure(time.Now().UTC(), err.Error())
 		return err
 	}
@@ -196,8 +197,8 @@ func (s *Service) renderArtifactName(now time.Time) (string, error) {
 	return name, nil
 }
 
-func (s *Service) applyRetention() error {
-	objects, err := s.destination.List(".")
+func (s *Service) applyRetention(prefix string) error {
+	objects, err := s.destination.List(prefix)
 	if err != nil {
 		return err
 	}
