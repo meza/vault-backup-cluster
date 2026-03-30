@@ -23,13 +23,21 @@ import (
 type App struct {
 	cfg          config.Config
 	logger       *slog.Logger
-	state        *state.Store
+	state        appState
 	server       *http.Server
 	elector      *consulx.Elector
 	backup       *backup.Service
 	vaultClient  *vault.Client
 	consulClient *consulapi.Client
 	destination  *storage.FileDestination
+}
+
+type appState interface {
+	SetLeader(bool, time.Time)
+	SetDependency(string, bool, string, time.Time)
+	Ready() bool
+	StatusJSON() ([]byte, error)
+	Metrics() string
 }
 
 func New() (*App, error) {
@@ -198,10 +206,5 @@ func (a *App) routes() http.Handler {
 
 func writeJSONError(writer http.ResponseWriter, statusCode int, err error) {
 	writer.WriteHeader(statusCode)
-	payload, marshalErr := json.Marshal(map[string]string{"error": err.Error()})
-	if marshalErr != nil {
-		_, _ = writer.Write([]byte(`{"error":"failed to encode error response"}`))
-		return
-	}
-	_, _ = writer.Write(payload)
+	_ = json.NewEncoder(writer).Encode(map[string]string{"error": err.Error()})
 }

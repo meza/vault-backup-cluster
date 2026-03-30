@@ -126,6 +126,21 @@ func TestNewClientSetsTimeoutWithoutTokens(t *testing.T) {
 	}
 }
 
+func TestNewClientReturnsHTTPClientConstructionError(t *testing.T) {
+	original := newHTTPClient
+	newHTTPClient = func(*http.Transport, consulapi.TLSConfig) (*http.Client, error) {
+		return nil, errors.New("boom")
+	}
+	defer func() {
+		newHTTPClient = original
+	}()
+
+	_, err := NewClient("http://127.0.0.1:8500", nil)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected wrapped HTTP client error, got %v", err)
+	}
+}
+
 func TestTokenTransportSetsTrimmedConsulToken(t *testing.T) {
 	transport := tokenTransport{
 		base: roundTripFunc(func(request *http.Request) (*http.Response, error) {

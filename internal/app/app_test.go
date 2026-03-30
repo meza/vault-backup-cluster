@@ -96,8 +96,50 @@ func TestWriteJSONErrorProducesValidJSON(t *testing.T) {
 	}
 }
 
+func TestRoutesReturnValidJSONWhenStatusEncodingFails(t *testing.T) {
+	application := &App{state: failingState{}, logger: slog.New(slog.NewTextHandler(ioDiscard{}, nil))}
+	handler := application.routes()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/status", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status to return 500, got %d", recorder.Code)
+	}
+
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected valid JSON, got %v with body %q", err, recorder.Body.String())
+	}
+	if payload.Error != "bad \x1f data" {
+		t.Fatalf("expected marshaled error message, got %q", payload.Error)
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) {
 	return len(p), nil
+}
+
+type failingState struct{}
+
+func (failingState) SetLeader(bool, time.Time) {
+}
+
+func (failingState) SetDependency(string, bool, string, time.Time) {
+}
+
+func (failingState) Ready() bool {
+	return true
+}
+
+func (failingState) StatusJSON() ([]byte, error) {
+	return nil, errors.New("bad \x1f data")
+}
+
+func (failingState) Metrics() string {
+	return ""
 }
