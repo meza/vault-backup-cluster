@@ -78,6 +78,26 @@ func (f fakeDestinationProber) Check(context.Context) error {
 	return f.err
 }
 
+type failingResponseWriter struct {
+	header http.Header
+	status int
+}
+
+func (f *failingResponseWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = make(http.Header)
+	}
+	return f.header
+}
+
+func (f *failingResponseWriter) WriteHeader(statusCode int) {
+	f.status = statusCode
+}
+
+func (f *failingResponseWriter) Write([]byte) (int, error) {
+	return 0, errors.New("boom")
+}
+
 type fakeVaultTokenSource struct{}
 
 func (fakeVaultTokenSource) Token() (string, error) {
@@ -528,6 +548,35 @@ func TestRunProbesRepeatsOnTicker(t *testing.T) {
 
 	if checks < 2 {
 		t.Fatalf("expected repeated probes, got %d", checks)
+	}
+}
+
+func TestRoutesIgnoreResponseWriteErrors(t *testing.T) {
+	application := &App{
+		state: state.New("node-a"),
+	}
+	now := time.Now()
+	application.state.SetDependency("consul", true, "", now)
+	application.state.SetDependency("vault", true, "", now)
+	application.state.SetDependency("destination", true, "", now)
+
+	for _, path := range []string{"/healthz", "/readyz", "/status", "/metrics"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		writer := &failingResponseWriter{}
+		application.routes().ServeHTTP(writer, request)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	writer := &failingResponseWriter{}
+	application = &App{state: state.New("node-a")}
+	application.routes().ServeHTTP(writer, request)
+}
+
+func TestWriteJSONErrorIgnoresEncodingErrors(t *testing.T) {
+	writer := &failingResponseWriter{}
+	writeJSONError(writer, http.StatusInternalServerError, errors.New("boom"))
+	if writer.status != http.StatusInternalServerError {
+		t.Fatalf("expected status code 500, got %d", writer.status)
 	}
 }
 

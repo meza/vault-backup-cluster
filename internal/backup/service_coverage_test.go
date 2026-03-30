@@ -77,6 +77,9 @@ func (s *stubDestination) List(string) ([]storage.Object, error) {
 func (s *stubDestination) Delete(name string) error {
 	s.deleted = append(s.deleted, name)
 	if s.deleteErrs != nil {
+		if wildcardErr, ok := s.deleteErrs["*"]; ok {
+			return wildcardErr
+		}
 		return s.deleteErrs[name]
 	}
 	return nil
@@ -102,6 +105,32 @@ func (s *stubScratchFile) Sync() error {
 
 func (s *stubScratchFile) Close() error {
 	return s.closeErr
+}
+
+type agePruneDestination struct {
+	objects []storage.Object
+	deleted []string
+}
+
+func (d *agePruneDestination) Check(context.Context) error {
+	return nil
+}
+
+func (d *agePruneDestination) UploadFile(context.Context, string, string) error {
+	return nil
+}
+
+func (d *agePruneDestination) UploadBytes(context.Context, string, []byte) error {
+	return nil
+}
+
+func (d *agePruneDestination) List(string) ([]storage.Object, error) {
+	return d.objects, nil
+}
+
+func (d *agePruneDestination) Delete(name string) error {
+	d.deleted = append(d.deleted, name)
+	return nil
 }
 
 func restoreBackupHooks() {
@@ -253,6 +282,15 @@ func TestExecuteOnceErrorPaths(t *testing.T) {
 	if err := service.ExecuteOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected retention error, got %v", err)
 	}
+
+	restoreBackupHooks()
+	service, _ = newServiceForCoverage(t, stubSnapshotClient{content: []byte("snapshot")}, &stubDestination{
+		uploadBytesErr: errors.New("boom"),
+		deleteErrs:     map[string]error{"*": errors.New("cleanup boom")},
+	})
+	if err := service.ExecuteOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected metadata upload error, got %v", err)
+	}
 }
 
 func TestApplyRetentionErrorPaths(t *testing.T) {
@@ -282,6 +320,39 @@ func TestApplyRetentionErrorPaths(t *testing.T) {
 	if err := service.applyRetention("snapshots"); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected metadata delete error, got %v", err)
 	}
+}
+
+func TestApplyRetentionPrunesOldSnapshotsWithinPrefix(t *testing.T) {
+	destination := &agePruneDestination{
+		objects: []storage.Object{
+			{Name: "snapshots/new.snap", ModTime: time.Now()},
+			{Name: "snapshots/old.snap", ModTime: time.Now().Add(-2 * time.Hour)},
+			{Name: "shared/unrelated.snap", ModTime: time.Now().Add(-24 * time.Hour)},
+		},
+	}
+	service, _ := newServiceForCoverage(t, stubSnapshotClient{}, destination)
+	service.retentionCount = 0
+	service.retentionMaxAge = time.Hour
+
+	if err := service.applyRetention("snapshots"); err != nil {
+		t.Fatalf("expected age pruning success, got %v", err)
+	}
+
+	if got := strings.Join(destination.deleted, ","); got != "snapshots/old.snap,snapshots/old.snap.metadata.json" {
+		t.Fatalf("unexpected deleted objects %q", got)
+	}
+}
+
+func TestCleanupScratchFileIgnoresCleanupErrors(t *testing.T) {
+	restoreBackupHooks()
+	t.Cleanup(restoreBackupHooks)
+
+	service, _ := newServiceForCoverage(t, stubSnapshotClient{}, &stubDestination{})
+	removeScratch = func(string) error {
+		return errors.New("boom")
+	}
+
+	service.cleanupScratchFile(&stubScratchFile{name: "scratch", closeErr: errors.New("boom")}, "scratch")
 }
 
 func TestScratchArtifactPath(t *testing.T) {

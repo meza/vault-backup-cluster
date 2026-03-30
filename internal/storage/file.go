@@ -19,13 +19,17 @@ type atomicFile interface {
 	Close() error
 }
 
+func osOpenFile(path string) (io.ReadCloser, error) {
+	return os.Open(path)
+}
+
 func osCreateTempFile(dir string, pattern string) (atomicFile, error) {
 	return os.CreateTemp(dir, pattern)
 }
 
 var (
 	makeDir         = os.MkdirAll
-	openFile        = os.Open
+	openFile        = osOpenFile
 	createTempFile  = osCreateTempFile
 	removeFile      = os.Remove
 	renameFile      = os.Rename

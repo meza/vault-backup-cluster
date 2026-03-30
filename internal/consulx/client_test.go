@@ -338,12 +338,33 @@ func TestDrainBodyHandlesNilInputs(t *testing.T) {
 	DrainBody(&http.Response{})
 }
 
+func TestDrainBodyIgnoresReadAndCloseErrors(t *testing.T) {
+	DrainBody(&http.Response{Body: &errReadCloser{closeErr: errors.New("close boom")}})
+	DrainBody(&http.Response{Body: &trackedReadCloser{ReadCloser: io.NopCloser(strings.NewReader("payload")), closeErr: errors.New("close boom")}})
+}
+
 type trackedReadCloser struct {
 	io.ReadCloser
 	closed bool
+	closeErr error
 }
 
 func (t *trackedReadCloser) Close() error {
 	t.closed = true
+	if t.closeErr != nil {
+		return t.closeErr
+	}
 	return t.ReadCloser.Close()
+}
+
+type errReadCloser struct {
+	closeErr error
+}
+
+func (e *errReadCloser) Read([]byte) (int, error) {
+	return 0, errors.New("boom")
+}
+
+func (e *errReadCloser) Close() error {
+	return e.closeErr
 }

@@ -129,6 +129,9 @@ func (c Config) Validate() error {
 	if c.RetentionMaxAge < 0 {
 		problems = append(problems, "RETENTION_MAX_AGE must be zero or positive")
 	}
+	if c.ProbeInterval <= 0 {
+		problems = append(problems, "PROBE_INTERVAL must be greater than zero")
+	}
 	if strings.TrimSpace(c.ArtifactNameTemplate) == "" {
 		problems = append(problems, "ARTIFACT_NAME_TEMPLATE must be non-empty")
 	}

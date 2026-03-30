@@ -17,6 +17,26 @@ type fakeAtomicTempFile struct {
 	writeErr error
 	syncErr  error
 	closeErr error
+	closeFn  func() error
+}
+
+type fakeReadCloser struct {
+	data     []byte
+	offset   int
+	closeErr error
+}
+
+func (f *fakeReadCloser) Read(p []byte) (int, error) {
+	if f.offset >= len(f.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.data[f.offset:])
+	f.offset += n
+	return n, nil
+}
+
+func (f *fakeReadCloser) Close() error {
+	return f.closeErr
 }
 
 func (f *fakeAtomicTempFile) Write(p []byte) (int, error) {
@@ -35,6 +55,9 @@ func (f *fakeAtomicTempFile) Sync() error {
 }
 
 func (f *fakeAtomicTempFile) Close() error {
+	if f.closeFn != nil {
+		return f.closeFn()
+	}
 	return f.closeErr
 }
 
@@ -59,7 +82,7 @@ func (fakeFileInfo) Sys() any           { return nil }
 
 func restoreStorageHooks() {
 	makeDir = os.MkdirAll
-	openFile = os.Open
+	openFile = osOpenFile
 	createTempFile = osCreateTempFile
 	removeFile = os.Remove
 	renameFile = os.Rename
@@ -91,6 +114,25 @@ func TestCheck(t *testing.T) {
 	}
 	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "create probe file") {
 		t.Fatalf("expected probe error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "probe"), closeErr: errors.New("boom")}, nil
+	}
+	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "close probe file") {
+		t.Fatalf("expected probe close error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "probe")}, nil
+	}
+	removeFile = func(string) error {
+		return errors.New("boom")
+	}
+	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "remove probe file") {
+		t.Fatalf("expected probe remove error, got %v", err)
 	}
 
 	restoreStorageHooks()
@@ -132,6 +174,32 @@ func TestUploadFileAndBytesErrorPaths(t *testing.T) {
 	restoreStorageHooks()
 	if err := destination.UploadFile(context.Background(), "prod/file.snap", filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "open source artifact") {
 		t.Fatalf("expected source open error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	sourcePath := filepath.Join(t.TempDir(), "source.snap")
+	if err := os.WriteFile(sourcePath, []byte("data"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "temp"), closeErr: errors.New("boom")}, nil
+	}
+	if err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath); err == nil || !strings.Contains(err.Error(), "close destination content") {
+		t.Fatalf("expected destination close error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	openFile = func(string) (io.ReadCloser, error) {
+		return &fakeReadCloser{data: []byte("data"), closeErr: errors.New("boom")}, nil
+	}
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "temp")}, nil
+	}
+	renameFile = func(string, string) error {
+		return nil
+	}
+	if err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath); err == nil || !strings.Contains(err.Error(), "close source artifact") {
+		t.Fatalf("expected source close error, got %v", err)
 	}
 }
 
@@ -268,5 +336,40 @@ func TestWriteAtomicallyErrorPaths(t *testing.T) {
 	}
 	if err := writeAtomically(context.Background(), filepath.Join(t.TempDir(), "file.snap"), func(io.Writer) error { return nil }); err == nil || !strings.Contains(err.Error(), "move destination content into place") {
 		t.Fatalf("expected rename error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	closeCalls := 0
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{
+			name: filepath.Join(t.TempDir(), "temp"),
+			closeFn: func() error {
+				closeCalls++
+				if closeCalls == 1 {
+					return nil
+				}
+				return errors.New("boom")
+			},
+		}, nil
+	}
+	renameFile = func(string, string) error {
+		return nil
+	}
+	if err := writeAtomically(context.Background(), filepath.Join(t.TempDir(), "file.snap"), func(io.Writer) error { return nil }); err != nil {
+		t.Fatalf("expected deferred close error to be ignored, got %v", err)
+	}
+
+	restoreStorageHooks()
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "temp")}, nil
+	}
+	renameFile = func(string, string) error {
+		return nil
+	}
+	removeFile = func(string) error {
+		return errors.New("boom")
+	}
+	if err := writeAtomically(context.Background(), filepath.Join(t.TempDir(), "file.snap"), func(io.Writer) error { return nil }); err != nil {
+		t.Fatalf("expected deferred remove error to be ignored, got %v", err)
 	}
 }

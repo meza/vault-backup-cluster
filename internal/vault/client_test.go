@@ -158,6 +158,17 @@ func TestSnapshotErrorPaths(t *testing.T) {
 		t.Fatalf("expected non-200 error, got %v", err)
 	}
 
+	client = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"})
+	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Body:       io.NopCloser(failingReader{}),
+		}, nil
+	})
+	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "read vault snapshot error response") {
+		t.Fatalf("expected read error, got %v", err)
+	}
+
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte("snapshot")); err != nil {
 			t.Fatalf("write snapshot response: %v", err)
@@ -203,4 +214,24 @@ func TestSanitizeURL(t *testing.T) {
 	if got := SanitizeURL("://bad"); got != "://bad" {
 		t.Fatalf("expected invalid URL to round trip, got %q", got)
 	}
+}
+
+func TestCloseResponseBodyHandlesNilAndCloseErrors(t *testing.T) {
+	closeResponseBody(nil)
+	closeResponseBody(&http.Response{})
+	closeResponseBody(&http.Response{Body: failingCloseReadCloser{ReadCloser: io.NopCloser(strings.NewReader("payload"))}})
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("boom")
+}
+
+type failingCloseReadCloser struct {
+	io.ReadCloser
+}
+
+func (failingCloseReadCloser) Close() error {
+	return errors.New("boom")
 }

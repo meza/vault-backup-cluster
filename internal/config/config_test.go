@@ -121,6 +121,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		ArtifactNameTemplate: " ",
 		RetentionCount:       -1,
 		RetentionMaxAge:      -time.Second,
+		ProbeInterval:        0,
 		ScratchDir:           "relative",
 	}
 
@@ -140,6 +141,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		"SCRATCH_DIR must be an absolute path",
 		"RETENTION_COUNT must be zero or greater",
 		"RETENTION_MAX_AGE must be zero or positive",
+		"PROBE_INTERVAL must be greater than zero",
 		"ARTIFACT_NAME_TEMPLATE must be non-empty",
 	} {
 		if !strings.Contains(err.Error(), fragment) {

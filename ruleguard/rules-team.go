@@ -5,6 +5,10 @@ package gorules
 import "github.com/quasilyte/go-ruleguard/dsl"
 
 func receiverNameMinLength(m dsl.Matcher) {
+	m.Match(`func ($recv $*_) $*_* { $*_ }`).
+		Where(m["recv"].Text == "_").
+		At(m["recv"]).
+		Report("receiver names must not use the blank identifier")
 }
 
 func forbidIgnoringJSONDecodeError(m dsl.Matcher) {

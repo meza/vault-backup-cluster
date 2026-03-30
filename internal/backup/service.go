@@ -228,8 +228,17 @@ func (s *Service) applyRetention(prefix string) error {
 	if err != nil {
 		return err
 	}
+	scopedPrefix := path.Clean(prefix)
 	snapshots := make([]storage.Object, 0)
 	for _, object := range objects {
+		if !strings.HasSuffix(object.Name, ".snap") {
+			continue
+		}
+		if scopedPrefix != "." && scopedPrefix != "" {
+			if object.Name != scopedPrefix && !strings.HasPrefix(object.Name, scopedPrefix+"/") {
+				continue
+			}
+		}
 		if strings.HasSuffix(object.Name, ".snap") {
 			snapshots = append(snapshots, object)
 		}
