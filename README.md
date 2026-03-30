@@ -1,70 +1,102 @@
 # Vault Snapshot Coordinator
 
-Vault Snapshot Coordinator is a small clustered service that automates periodic snapshots for a HashiCorp Vault cluster running on Integrated Storage. It exists to provide the orchestration and runtime harness that would otherwise need to be done manually when Vault Enterprise automated snapshot features are not available.
+Vault Snapshot Coordinator is a small Go service that runs as identical instances beside a Vault cluster and uses Consul leadership to ensure only one node performs a snapshot for each scheduled interval.
 
-The service is designed to run as multiple identical instances. Coordination is handled through Consul so that only one instance performs a backup at a given scheduled time. If the active instance dies or loses leadership, another instance can take over.
+The service stays narrow on purpose. Envoy provides the trusted network path. Vault Agent provides short lived credentials. This service handles leader election, snapshot execution, artifact handling, retention, and operator visibility.
 
-This service is intended to run inside an environment where transport trust and short-lived access are already part of the platform model. It relies on Envoy and Vault Agent for connectivity, mTLS, and credential management rather than implementing those concerns itself.
+## Features
 
-## What it does
-
-The service participates in a Consul-coordinated cluster and competes for backup leadership. The elected leader runs on the configured schedule, calls Vault's snapshot API, writes the snapshot artifact, uploads it to the configured backup destination, records execution metadata, and applies retention policy.
-
-Non-leader instances remain passive and ready to take over if leadership changes.
-
-## Design principles
-
-This project is intentionally narrow.
-
-It is not a general-purpose Vault administration tool.
-It is not a replacement for Vault Agent, Envoy, or service mesh identity.
-It is not a disaster recovery control plane.
-
-Its job is to coordinate and execute periodic Vault snapshots safely and predictably.
+- Consul backed leader election with automatic failover
+- Interval based backup scheduling aligned to wall clock boundaries
+- Vault raft snapshot capture through `GET /v1/sys/storage/raft/snapshot`
+- Secure local scratch handling with checksum and size metadata
+- File destination uploads for an external encrypted mount or network share
+- Count based and age based retention
+- Structured JSON logs
+- `/healthz`, `/readyz`, `/status`, and `/metrics` endpoints
 
 ## Runtime model
 
-Each node runs the same container image.
-Each instance connects to Consul and competes for leadership using the configured coordination key.
-The leader runs the backup workflow on the configured schedule.
-Non-leaders wait and monitor leadership state.
+Every instance competes for the same Consul lock key. The leader keeps the lock alive and runs the backup loop. Non leaders stay passive.
 
-The service assumes that Envoy and Vault Agent provide the local trust path and access to Vault and Consul. From the application's point of view, those systems are available through local or otherwise trusted endpoints exposed by the runtime.
+Each backup run does this work.
+
+1. Confirms the destination is writable.
+2. Streams a Vault snapshot into a scratch file.
+3. Calculates the snapshot size and SHA256 checksum while streaming.
+4. Uploads the artifact to the configured backup location.
+5. Uploads a metadata sidecar file beside the artifact.
+6. Applies retention after a successful upload.
+7. Updates in memory status and metrics.
+
+If leadership is lost then the active run is canceled through context propagation. If Vault, Consul, or the destination is unavailable then the node reports that state through `/status`, `/readyz`, and `/metrics`.
 
 ## Configuration
 
-Configuration is expected to be provided through container environment variables.
+All configuration is supplied through environment variables.
 
-At minimum, the service must support configuration for:
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `NODE_ID` | No | Hostname | Stable node identity written into leadership and metadata |
+| `HTTP_BIND_ADDRESS` | No | `:8080` | Bind address for health, status, and metrics |
+| `LOG_LEVEL` | No | `info` | Structured log level |
+| `VAULT_ADDR` | Yes | | Local Vault endpoint exposed through Envoy |
+| `VAULT_TOKEN` | One of token or token file | | Static Vault token |
+| `VAULT_TOKEN_FILE` | One of token or token file | | Vault Agent token sink file |
+| `VAULT_REQUEST_TIMEOUT` | No | `10m` | Timeout for snapshot and health requests |
+| `CONSUL_ADDR` | Yes | | Local Consul endpoint exposed through Envoy |
+| `CONSUL_HTTP_TOKEN` | No | | Static Consul ACL token |
+| `CONSUL_HTTP_TOKEN_FILE` | No | | Consul ACL token file |
+| `CONSUL_LOCK_KEY` | Yes | | Shared Consul coordination key |
+| `CONSUL_SESSION_TTL` | No | `15s` | Session TTL used for lock ownership |
+| `CONSUL_LOCK_WAIT` | No | `10s` | Long poll wait used while contending for the lock |
+| `BACKUP_SCHEDULE` | Yes | | Go duration string such as `15m` or `1h` |
+| `BACKUP_LOCATION` | Yes | | Absolute path to an external durable mount |
+| `ARTIFACT_NAME_TEMPLATE` | No | `vault-snapshot-{{ .Timestamp }}-{{ .NodeID }}.snap` | Template for destination object names |
+| `RETENTION_COUNT` | No | `7` | Number of snapshots to retain. `0` disables count pruning |
+| `RETENTION_MAX_AGE` | No | | Maximum age to retain snapshots. Example `168h` |
+| `SCRATCH_DIR` | No | `/tmp/vault-snapshot-coordinator` | Local temporary directory |
+| `PROBE_INTERVAL` | No | `30s` | Dependency probe interval |
 
-* backup location
-* backup schedule
-* Vault endpoint
-* Consul endpoint
-* coordination key
-* retention policy
-* artifact naming pattern
-* scratch storage path
-* logging level
-* metrics bind address
-* any local paths or endpoints exposed by Envoy and Vault Agent
+`BACKUP_LOCATION` is a filesystem path by design in this first implementation. Mount an encrypted network share or other off cluster durable path there.
 
-The same image should be reusable across environments without requiring rebuilds for schedule or destination changes.
+## HTTP endpoints
 
-## Security model
+| Endpoint | Behavior |
+| --- | --- |
+| `/healthz` | Returns process health |
+| `/readyz` | Returns `200` when Vault, Consul, and the backup destination last probed successfully |
+| `/status` | Returns machine readable operational state including leader status and last backup outcome |
+| `/metrics` | Returns Prometheus compatible text metrics |
 
-Vault snapshots are sensitive artifacts and must be treated accordingly.
+## Build and test
 
-The service must never log snapshot contents, secrets, or credential material. Temporary local artifacts should only exist for as long as needed to complete upload and metadata recording. Uploaded artifacts should be stored outside the Vault cluster footprint using secure transport and encrypted storage.
+```sh
+make test
+make build
+```
 
-The service does not own transport identity or credential lifecycle management. Those concerns are delegated to Envoy and Vault Agent.
+## Local automation
 
-## Expected behavior
+```sh
+make lint
+make vulncheck
+make licenses
+make ci
+```
 
-Only the current leader is allowed to execute backups.
-A node that loses leadership must stop acting as leader.
-A failed backup must never be reported as successful.
-A node must not self-promote outside Consul coordination.
-The system should remain operational when individual nodes fail.
+## Container image
 
-##
+```sh
+make docker-build
+```
+
+The image is built from `Dockerfile` and starts the single static binary.
+
+## CI and release automation
+
+- `.github/workflows/ci.yml` runs lint, tests, binary build, govulncheck, go-licenses, and a Docker build on pull requests and pushes to `main`
+- `.github/workflows/release.yml` runs semantic-release on pushes to `main` and calls GoReleaser to publish binaries, checksums, and Docker images
+- `.golangci.yml` defines the repository lint policy
+- `.releaserc.yml` uses the `conventionalcommits` preset for semantic-release
+- `.goreleaser.yml` publishes release artifacts and Docker images with GoReleaser
