@@ -205,7 +205,7 @@ linters:
         ruleguard:
           failOn: dsl,import
           rules: '${config-path}/ruleguard/rules-team.go'
-          enable: receiverNameMinLength,forbidIgnoringJSONDecodeError,forbidIgnoringHTTPRequestBuildError,forbidIgnoringAtoiErrorInBoundaryParsing
+          enable: forbidBlankReceiverName,forbidIgnoringJSONDecodeError,forbidIgnoringHTTPRequestBuildError,forbidIgnoringAtoiErrorInBoundaryParsing
 
     gosec:
       exclude-generated: true

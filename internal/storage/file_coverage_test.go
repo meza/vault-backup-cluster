@@ -271,6 +271,20 @@ func TestDeleteAndResolve(t *testing.T) {
 	}
 }
 
+func TestDeleteUsesRemoveHook(t *testing.T) {
+	restoreStorageHooks()
+	t.Cleanup(restoreStorageHooks)
+
+	destination := NewFileDestination(t.TempDir())
+	removeFile = func(string) error {
+		return errors.New("boom")
+	}
+
+	if err := destination.Delete("artifact.snap"); err == nil || !strings.Contains(err.Error(), "delete artifact.snap") {
+		t.Fatalf("expected hooked delete error, got %v", err)
+	}
+}
+
 func TestWriteAtomicallyErrorPaths(t *testing.T) {
 	restoreStorageHooks()
 	t.Cleanup(restoreStorageHooks)
@@ -360,5 +374,40 @@ func TestWriteAtomicallyErrorPaths(t *testing.T) {
 	}
 	if err := writeAtomically(context.Background(), filepath.Join(t.TempDir(), "file.snap"), func(io.Writer) error { return nil }); err != nil {
 		t.Fatalf("expected deferred remove error to be ignored, got %v", err)
+	}
+}
+
+func TestWriteAtomicallyAttemptsDeferredRemoveAfterCloseError(t *testing.T) {
+	restoreStorageHooks()
+	t.Cleanup(restoreStorageHooks)
+
+	expectedTemp := filepath.Join(t.TempDir(), "temp")
+	closeCalls := 0
+	removedPath := ""
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{
+			name: expectedTemp,
+			closeFn: func() error {
+				closeCalls++
+				if closeCalls == 1 {
+					return nil
+				}
+				return errors.New("boom")
+			},
+		}, nil
+	}
+	renameFile = func(string, string) error {
+		return nil
+	}
+	removeFile = func(path string) error {
+		removedPath = path
+		return os.ErrNotExist
+	}
+
+	if err := writeAtomically(context.Background(), filepath.Join(t.TempDir(), "file.snap"), func(io.Writer) error { return nil }); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if removedPath != expectedTemp {
+		t.Fatalf("expected deferred cleanup remove for %q, got %q", expectedTemp, removedPath)
 	}
 }

@@ -131,8 +131,10 @@ func (s *Service) recordFailure(err error) error {
 }
 
 func (s *Service) cleanupScratchFile(tempFile scratchFile, tempPath string) {
-	if err := tempFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-		s.logger.Debug("close scratch artifact during cleanup", "path", tempPath, "error", err)
+	if tempFile != nil {
+		if err := tempFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			s.logger.Debug("close scratch artifact during cleanup", "path", tempPath, "error", err)
+		}
 	}
 	if err := removeScratch(tempPath); err != nil && !os.IsNotExist(err) {
 		s.logger.Warn("remove scratch artifact during cleanup", "path", tempPath, "error", err)
@@ -172,6 +174,7 @@ func (s *Service) ExecuteOnce(ctx context.Context) error {
 	if closeErr := tempFile.Close(); closeErr != nil {
 		return s.recordFailure(fmt.Errorf("close scratch artifact: %w", closeErr))
 	}
+	tempFile = nil
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return s.recordFailure(ctxErr)
 	}

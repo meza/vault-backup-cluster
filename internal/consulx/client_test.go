@@ -359,6 +359,7 @@ func (t *trackedReadCloser) Close() error {
 
 type errReadCloser struct {
 	closeErr error
+	closed   bool
 }
 
 func (e *errReadCloser) Read([]byte) (int, error) {
@@ -366,5 +367,16 @@ func (e *errReadCloser) Read([]byte) (int, error) {
 }
 
 func (e *errReadCloser) Close() error {
+	e.closed = true
 	return e.closeErr
+}
+
+func TestDrainBodyClosesBodyAfterReadError(t *testing.T) {
+	reader := &errReadCloser{closeErr: errors.New("close boom")}
+
+	DrainBody(&http.Response{Body: reader})
+
+	if !reader.closed {
+		t.Fatal("expected response body close after read error")
+	}
 }

@@ -310,6 +310,9 @@ func TestRunReturnsServerError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected server error, got %v", err)
 	}
+	if !application.server.(*fakeServer).shutdownCalled {
+		t.Fatal("expected shutdown on server error")
+	}
 }
 
 func TestRunReturnsElectionError(t *testing.T) {
@@ -331,6 +334,9 @@ func TestRunReturnsElectionError(t *testing.T) {
 	err := application.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected election error, got %v", err)
+	}
+	if !server.shutdownCalled {
+		t.Fatal("expected shutdown on election error")
 	}
 }
 

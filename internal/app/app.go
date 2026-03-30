@@ -146,21 +146,26 @@ func (a *App) Run(ctx context.Context) error {
 		})
 	}()
 
+	var runErr error
 	select {
 	case <-ctx.Done():
 	case err := <-serverErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
+			runErr = err
 		}
 	case err := <-electionErrors:
 		if err != nil && !errors.Is(err, context.Canceled) {
-			return err
+			runErr = err
 		}
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return a.server.Shutdown(shutdownCtx)
+	shutdownErr := a.server.Shutdown(shutdownCtx)
+	if runErr != nil {
+		return runErr
+	}
+	return shutdownErr
 }
 
 func (a *App) runProbes(ctx context.Context) {

@@ -89,6 +89,8 @@ type stubScratchFile struct {
 	name     string
 	syncErr  error
 	closeErr error
+	closeFn  func() error
+	closeCnt *int
 }
 
 func (s *stubScratchFile) Write(p []byte) (int, error) {
@@ -104,6 +106,12 @@ func (s *stubScratchFile) Sync() error {
 }
 
 func (s *stubScratchFile) Close() error {
+	if s.closeCnt != nil {
+		*s.closeCnt++
+	}
+	if s.closeFn != nil {
+		return s.closeFn()
+	}
 	return s.closeErr
 }
 
@@ -353,6 +361,24 @@ func TestCleanupScratchFileIgnoresCleanupErrors(t *testing.T) {
 	}
 
 	service.cleanupScratchFile(&stubScratchFile{name: "scratch", closeErr: errors.New("boom")}, "scratch")
+}
+
+func TestExecuteOnceClosesScratchArtifactOnceOnSuccess(t *testing.T) {
+	restoreBackupHooks()
+	t.Cleanup(restoreBackupHooks)
+
+	closeCalls := 0
+	service, _ := newServiceForCoverage(t, stubSnapshotClient{content: []byte("snapshot")}, &stubDestination{})
+	createScratchTmp = func(string, string) (scratchFile, error) {
+		return &stubScratchFile{name: filepath.Join(t.TempDir(), "snap"), closeCnt: &closeCalls}, nil
+	}
+
+	if err := service.ExecuteOnce(context.Background()); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("expected one close call, got %d", closeCalls)
+	}
 }
 
 func TestWithinRetentionPrefix(t *testing.T) {

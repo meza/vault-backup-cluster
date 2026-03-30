@@ -155,7 +155,7 @@ func (d *FileDestination) Delete(name string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := removeFile(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete %s: %w", name, err)
 	}
 	return nil
@@ -181,10 +181,10 @@ func writeAtomically(ctx context.Context, path string, write func(io.Writer) err
 	tempName := temp.Name()
 	defer func() {
 		if err := temp.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-			return
+			_ = err
 		}
 		if err := removeFile(tempName); err != nil && !os.IsNotExist(err) {
-			return
+			_ = err
 		}
 	}()
 	if err := write(temp); err != nil {

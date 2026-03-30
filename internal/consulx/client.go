@@ -160,9 +160,9 @@ func DrainBody(response *http.Response) {
 		return
 	}
 	if _, err := io.Copy(io.Discard, response.Body); err != nil {
-		return
+		_ = err
 	}
 	if err := response.Body.Close(); err != nil {
-		return
+		_ = err
 	}
 }
