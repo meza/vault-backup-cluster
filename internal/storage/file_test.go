@@ -39,3 +39,16 @@ func TestFileDestinationRejectsTraversal(t *testing.T) {
 		t.Fatal("expected traversal error")
 	}
 }
+
+func TestFileDestinationAcceptsRootsWithTrailingSeparator(t *testing.T) {
+	root := t.TempDir() + string(os.PathSeparator)
+	destination := NewFileDestination(root)
+
+	resolved, err := destination.resolve("prod/artifact.snap")
+	if err != nil {
+		t.Fatalf("expected trailing separator root to resolve, got %v", err)
+	}
+	if resolved != filepath.Join(filepath.Clean(root), "prod", "artifact.snap") {
+		t.Fatalf("unexpected resolved path %q", resolved)
+	}
+}

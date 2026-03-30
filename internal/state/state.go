@@ -108,8 +108,14 @@ func (s *Store) Snapshot() Snapshot {
 	defer s.mu.RUnlock()
 
 	copy := s.snap
+	copy.LeaderSince = cloneTimePointer(s.snap.LeaderSince)
+	copy.ActiveRunStartedAt = cloneTimePointer(s.snap.ActiveRunStartedAt)
+	copy.LastAttemptAt = cloneTimePointer(s.snap.LastAttemptAt)
+	copy.LastSuccessAt = cloneTimePointer(s.snap.LastSuccessAt)
+	copy.LastFailureAt = cloneTimePointer(s.snap.LastFailureAt)
 	copy.Dependencies = make([]DependencyStatus, 0, len(s.deps))
 	for _, dep := range s.deps {
+		dep.CheckedAt = cloneTimePointer(dep.CheckedAt)
 		copy.Dependencies = append(copy.Dependencies, dep)
 	}
 	sort.Slice(copy.Dependencies, func(i, j int) bool {
@@ -180,4 +186,12 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := value.UTC()
+	return &copy
 }

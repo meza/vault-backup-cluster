@@ -21,7 +21,7 @@ type FileDestination struct {
 }
 
 func NewFileDestination(root string) *FileDestination {
-	return &FileDestination{root: root}
+	return &FileDestination{root: filepath.Clean(root)}
 }
 
 func (d *FileDestination) Check(ctx context.Context) error {

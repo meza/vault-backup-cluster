@@ -169,3 +169,34 @@ func TestMetricsIncludeLeaderSuccessFailureAndDependencyLines(t *testing.T) {
 		}
 	}
 }
+
+func TestSnapshotDoesNotExposeMutableInternalTimePointers(t *testing.T) {
+	store := New("node-a")
+	now := time.Date(2026, time.March, 30, 11, 30, 0, 0, time.UTC)
+	store.SetLeader(true, now)
+	store.MarkAttempt(now)
+	store.MarkSuccess(now, 64, "sum")
+	store.MarkFailure(now, "boom")
+	store.SetDependency("consul", false, "down", now)
+
+	snapshot := store.Snapshot()
+	mutated := now.Add(24 * time.Hour)
+	*snapshot.LeaderSince = mutated
+	*snapshot.LastAttemptAt = mutated
+	*snapshot.LastSuccessAt = mutated
+	*snapshot.LastFailureAt = mutated
+	*snapshot.Dependencies[0].CheckedAt = mutated
+
+	current := store.Snapshot()
+	for _, value := range []*time.Time{
+		current.LeaderSince,
+		current.LastAttemptAt,
+		current.LastSuccessAt,
+		current.LastFailureAt,
+		current.Dependencies[0].CheckedAt,
+	} {
+		if value == nil || !value.Equal(now) {
+			t.Fatalf("expected stored time to remain %s, got %#v", now, value)
+		}
+	}
+}

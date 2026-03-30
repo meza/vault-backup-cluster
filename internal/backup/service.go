@@ -63,6 +63,9 @@ type TemplateData struct {
 }
 
 func NewService(nodeID string, every time.Duration, scratchDir string, artifactNameTemplate string, retentionCount int, retentionMaxAge time.Duration, stateStore *state.Store, snapshotClient SnapshotClient, destination Destination, logger *slog.Logger) (*Service, error) {
+	if err := ValidateLogger(logger); err != nil {
+		return nil, err
+	}
 	tmpl, err := template.New("artifact").Parse(strings.TrimSpace(artifactNameTemplate))
 	if err != nil {
 		return nil, fmt.Errorf("parse artifact name template: %w", err)
@@ -187,7 +190,7 @@ func (s *Service) renderArtifactName(now time.Time) (string, error) {
 	if name == "." || name == "" {
 		return "", fmt.Errorf("render artifact name: empty result")
 	}
-	if path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, "/../") {
+	if name == ".." || path.IsAbs(name) || strings.HasPrefix(name, "../") || strings.Contains(name, "/../") {
 		return "", fmt.Errorf("render artifact name: invalid path %q", name)
 	}
 	return name, nil

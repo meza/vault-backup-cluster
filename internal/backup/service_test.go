@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -104,5 +105,23 @@ func TestRenderArtifactNameRejectsTraversal(t *testing.T) {
 	_, err = service.renderArtifactName(time.Now())
 	if err == nil || !strings.Contains(err.Error(), "invalid path") {
 		t.Fatalf("expected invalid path error, got %v", err)
+	}
+}
+
+func TestRenderArtifactNameRejectsParentDirectoryResult(t *testing.T) {
+	service, err := NewService("node-a", time.Hour, t.TempDir(), "..", 1, 0, state.New("node-a"), fakeSnapshotClient{}, storage.NewFileDestination(t.TempDir()), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewService returned error: %v", err)
+	}
+	_, err = service.renderArtifactName(time.Now())
+	if err == nil || !strings.Contains(err.Error(), "invalid path") {
+		t.Fatalf("expected invalid path error, got %v", err)
+	}
+}
+
+func TestNewServiceRequiresLogger(t *testing.T) {
+	_, err := NewService("node-a", time.Hour, t.TempDir(), "snapshots/{{ .Timestamp }}.snap", 1, 0, state.New("node-a"), fakeSnapshotClient{}, storage.NewFileDestination(t.TempDir()), nil)
+	if err == nil || !errors.Is(err, ErrNoLogger) {
+		t.Fatalf("expected ErrNoLogger, got %v", err)
 	}
 }
