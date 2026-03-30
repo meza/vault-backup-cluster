@@ -13,14 +13,14 @@ type appRunner interface {
 	Run(context.Context) error
 }
 
+func newApplicationImpl() (appRunner, error) {
+	return app.New()
+}
+
 var (
-	newApplication = func() (appRunner, error) {
-		return app.New()
-	}
+	newApplication = newApplicationImpl
 	notifyContext = signal.NotifyContext
-	logFatal      = func(v ...any) {
-		log.Fatal(v...)
-	}
+	logFatal      = log.Fatal
 )
 
 func run() error {

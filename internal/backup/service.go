@@ -105,14 +105,21 @@ func (s *Service) Run(ctx context.Context) error {
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			stopTimer(timer)
 			return nil
 		case <-timer.C:
 		}
 		if err := s.ExecuteOnce(ctx); err != nil {
 			s.logger.Error("backup run failed", "error", err)
+		}
+	}
+}
+
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
 		}
 	}
 }
