@@ -397,7 +397,8 @@ func TestWithinRetentionPrefix(t *testing.T) {
 }
 
 func TestScratchArtifactPath(t *testing.T) {
-	if got := ScratchArtifactPath("/tmp/scratch", "snapshots/path/file.snap"); got != "/tmp/scratch/file.snap" {
+	expected := filepath.Join("/tmp/scratch", "file.snap")
+	if got := ScratchArtifactPath("/tmp/scratch", "snapshots/path/file.snap"); got != expected {
 		t.Fatalf("unexpected scratch path %q", got)
 	}
 }

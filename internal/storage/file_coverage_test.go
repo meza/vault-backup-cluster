@@ -162,7 +162,10 @@ func TestUploadFileErrorPaths(t *testing.T) {
 	}
 
 	restoreStorageHooks()
-	closeSourceFile = func(*os.File) error {
+	closeSourceFile = func(file *os.File) error {
+		if err := file.Close(); err != nil {
+			t.Fatalf("close source file in hook: %v", err)
+		}
 		return errors.New("boom")
 	}
 	if err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath); err == nil || !strings.Contains(err.Error(), "close source artifact") {
