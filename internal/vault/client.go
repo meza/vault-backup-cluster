@@ -77,6 +77,7 @@ func loadTLSConfig(caCertFile string) (*tls.Config, error) {
 	if rootCAs == nil {
 		rootCAs = x509.NewCertPool()
 	}
+	//nolint:gosec // The CA bundle path comes from validated operator configuration.
 	caCertPEM, err := os.ReadFile(caCertFile)
 	if err != nil {
 		return nil, fmt.Errorf("read vault ca cert file: %w", err)

@@ -87,7 +87,7 @@ func (d *FileDestination) UploadFile(ctx context.Context, name string, sourcePat
 	closeErr := closeSourceFile(source)
 	if writeErr != nil {
 		if closeErr != nil {
-			return fmt.Errorf("%w; close source artifact: %v", writeErr, closeErr)
+			return errors.Join(writeErr, fmt.Errorf("close source artifact: %w", closeErr))
 		}
 		return writeErr
 	}

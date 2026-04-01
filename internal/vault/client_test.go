@@ -182,111 +182,113 @@ func TestFileTokenSourceErrors(t *testing.T) {
 	}
 }
 
-func TestSnapshotErrorPaths(t *testing.T) {
-	client, err := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
-	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "create snapshot request") {
-		t.Fatalf("expected request creation error, got %v", err)
-	}
+func TestSnapshotReturnsRequestCreationError(t *testing.T) {
+	client := newTestClient(t, "://bad", StaticTokenSource{value: "token"})
 
-	client, err = NewClient("http://vault.local", time.Minute, errorTokenSource{err: errors.New("boom")}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
+	_, snapshotErr := client.Snapshot(context.Background(), io.Discard)
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "create snapshot request") {
+		t.Fatalf("expected request creation error, got %v", snapshotErr)
 	}
-	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("expected token error, got %v", err)
-	}
+}
 
-	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
+func TestSnapshotReturnsTokenError(t *testing.T) {
+	client := newTestClient(t, "http://vault.local", errorTokenSource{err: errors.New("boom")})
+
+	_, snapshotErr := client.Snapshot(context.Background(), io.Discard)
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "boom") {
+		t.Fatalf("expected token error, got %v", snapshotErr)
 	}
+}
+
+func TestSnapshotReturnsRequestError(t *testing.T) {
+	client := newTestClient(t, "http://vault.local", StaticTokenSource{value: "token"})
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom")
 	})
-	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "request snapshot") {
-		t.Fatalf("expected request error, got %v", err)
-	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-		if _, err := w.Write([]byte("backend failed")); err != nil {
-			t.Fatalf("write backend failure response: %v", err)
+	_, snapshotErr := client.Snapshot(context.Background(), io.Discard)
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "request snapshot") {
+		t.Fatalf("expected request error, got %v", snapshotErr)
+	}
+}
+
+func TestSnapshotReturnsStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusBadGateway)
+		if _, writeErr := writer.Write([]byte("backend failed")); writeErr != nil {
+			t.Fatalf("write backend failure response: %v", writeErr)
 		}
 	}))
 	defer server.Close()
 
-	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
+	client := newTestClient(t, server.URL, StaticTokenSource{value: "token"})
+	_, snapshotErr := client.Snapshot(context.Background(), io.Discard)
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "status 502") {
+		t.Fatalf("expected non-200 error, got %v", snapshotErr)
 	}
-	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "status 502") {
-		t.Fatalf("expected non-200 error, got %v", err)
-	}
+}
 
-	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
+func TestSnapshotReturnsErrorWhenReadingFailureBodyFails(t *testing.T) {
+	client := newTestClient(t, "http://vault.local", StaticTokenSource{value: "token"})
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusBadGateway,
 			Body:       io.NopCloser(failingReader{}),
 		}, nil
 	})
-	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "read vault snapshot error response") {
-		t.Fatalf("expected read error, got %v", err)
-	}
 
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := w.Write([]byte("snapshot")); err != nil {
-			t.Fatalf("write snapshot response: %v", err)
+	_, snapshotErr := client.Snapshot(context.Background(), io.Discard)
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "read vault snapshot error response") {
+		t.Fatalf("expected read error, got %v", snapshotErr)
+	}
+}
+
+func TestSnapshotReturnsWriterError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if _, writeErr := writer.Write([]byte("snapshot")); writeErr != nil {
+			t.Fatalf("write snapshot response: %v", writeErr)
 		}
 	}))
 	defer server.Close()
 
-	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
-	if _, err := client.Snapshot(context.Background(), failingWriter{}); err == nil || !strings.Contains(err.Error(), "stream snapshot response") {
-		t.Fatalf("expected writer error, got %v", err)
+	client := newTestClient(t, server.URL, StaticTokenSource{value: "token"})
+	_, snapshotErr := client.Snapshot(context.Background(), failingWriter{})
+	if snapshotErr == nil || !strings.Contains(snapshotErr.Error(), "stream snapshot response") {
+		t.Fatalf("expected writer error, got %v", snapshotErr)
 	}
 }
 
-func TestHealthErrorPaths(t *testing.T) {
-	client, err := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
-	if err := client.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "create vault health request") {
-		t.Fatalf("expected request creation error, got %v", err)
-	}
+func TestHealthReturnsRequestCreationError(t *testing.T) {
+	client := newTestClient(t, "://bad", StaticTokenSource{value: "token"})
 
-	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
+	healthErr := client.Health(context.Background())
+	if healthErr == nil || !strings.Contains(healthErr.Error(), "create vault health request") {
+		t.Fatalf("expected request creation error, got %v", healthErr)
 	}
+}
+
+func TestHealthReturnsRequestError(t *testing.T) {
+	client := newTestClient(t, "http://vault.local", StaticTokenSource{value: "token"})
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom")
 	})
-	if err := client.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "request vault health") {
-		t.Fatalf("expected request error, got %v", err)
-	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
+	healthErr := client.Health(context.Background())
+	if healthErr == nil || !strings.Contains(healthErr.Error(), "request vault health") {
+		t.Fatalf("expected request error, got %v", healthErr)
+	}
+}
+
+func TestHealthReturnsStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer server.Close()
 
-	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
-	if err != nil {
-		t.Fatalf("NewClient returned error: %v", err)
-	}
-	if err := client.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "status 429") {
-		t.Fatalf("expected status error, got %v", err)
+	client := newTestClient(t, server.URL, StaticTokenSource{value: "token"})
+	healthErr := client.Health(context.Background())
+	if healthErr == nil || !strings.Contains(healthErr.Error(), "status 429") {
+		t.Fatalf("expected status error, got %v", healthErr)
 	}
 }
 
@@ -303,6 +305,16 @@ func TestCloseResponseBodyHandlesNilAndCloseErrors(t *testing.T) {
 	closeResponseBody(nil)
 	closeResponseBody(&http.Response{})
 	closeResponseBody(&http.Response{Body: failingCloseReadCloser{ReadCloser: io.NopCloser(strings.NewReader("payload"))}})
+}
+
+func newTestClient(t *testing.T, baseURL string, tokens TokenSource) *Client {
+	t.Helper()
+
+	client, err := NewClient(baseURL, time.Minute, tokens, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+	return client
 }
 
 func generateTestTLSMaterials(t *testing.T) ([]byte, tls.Certificate) {
