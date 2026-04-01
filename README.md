@@ -43,6 +43,7 @@ All configuration is supplied through environment variables.
 | `VAULT_ADDR` | Yes | | Local Vault endpoint exposed through Envoy |
 | `VAULT_TOKEN` | One of token or token file | | Static Vault token |
 | `VAULT_TOKEN_FILE` | One of token or token file | | Vault Agent token sink file |
+| `VAULT_CA_CERT_FILE` | No | | Absolute path to a PEM encoded CA certificate bundle used to trust the Vault server certificate |
 | `VAULT_REQUEST_TIMEOUT` | No | `10m` | Timeout for snapshot and health requests |
 | `CONSUL_ADDR` | Yes | | Local Consul endpoint exposed through Envoy |
 | `CONSUL_HTTP_TOKEN` | No | | Static Consul ACL token |
@@ -59,6 +60,8 @@ All configuration is supplied through environment variables.
 | `PROBE_INTERVAL` | No | `30s` | Dependency probe interval |
 
 `BACKUP_LOCATION` is a filesystem path by design in this first implementation. Mount an encrypted network share or other off cluster durable path there.
+
+When `VAULT_ADDR` uses HTTPS with a private CA, set `VAULT_CA_CERT_FILE` so the service can trust the Vault server certificate.
 
 ## HTTP endpoints
 

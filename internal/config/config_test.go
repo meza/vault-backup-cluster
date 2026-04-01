@@ -13,10 +13,12 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	t.Setenv("NODE_ID", "node-a")
 	t.Setenv("VAULT_ADDR", "http://127.0.0.1:8200")
 	t.Setenv("VAULT_TOKEN", "vault-token")
+	t.Setenv("VAULT_CA_CERT_FILE", filepath.Join(t.TempDir(), "vault-ca.crt"))
 	t.Setenv("CONSUL_ADDR", "http://127.0.0.1:8500")
 	t.Setenv("CONSUL_LOCK_KEY", "service/leader")
 	t.Setenv("BACKUP_SCHEDULE", "15m")
 	t.Setenv("BACKUP_LOCATION", filepath.Join(t.TempDir(), "backups"))
+	t.Setenv("SCRATCH_DIR", filepath.Join(t.TempDir(), "scratch"))
 	t.Setenv("RETENTION_COUNT", "4")
 	t.Setenv("RETENTION_MAX_AGE", "48h")
 
@@ -36,6 +38,9 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	}
 	if cfg.BackupSchedule.Minutes() != 15 {
 		t.Fatalf("expected schedule 15m, got %s", cfg.BackupSchedule)
+	}
+	if !strings.HasSuffix(cfg.VaultCACertFile, "vault-ca.crt") {
+		t.Fatalf("expected vault ca cert file to be parsed, got %q", cfg.VaultCACertFile)
 	}
 }
 
@@ -72,6 +77,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("VAULT_ADDR", "http://127.0.0.1:8200")
 	t.Setenv("VAULT_TOKEN", "vault-token")
 	t.Setenv("VAULT_TOKEN_FILE", "")
+	t.Setenv("VAULT_CA_CERT_FILE", "")
 	t.Setenv("CONSUL_ADDR", "http://127.0.0.1:8500")
 	t.Setenv("CONSUL_LOCK_KEY", "service/leader")
 	t.Setenv("BACKUP_SCHEDULE", "15m")
@@ -122,6 +128,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		RetentionCount:       -1,
 		RetentionMaxAge:      -time.Second,
 		ProbeInterval:        0,
+		VaultCACertFile:      "relative",
 		ScratchDir:           "relative",
 	}
 
@@ -138,6 +145,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		"CONSUL_LOCK_KEY is required",
 		"BACKUP_SCHEDULE is required",
 		"BACKUP_LOCATION must be an absolute path",
+		"VAULT_CA_CERT_FILE must be an absolute path",
 		"SCRATCH_DIR must be an absolute path",
 		"RETENTION_COUNT must be zero or greater",
 		"RETENTION_MAX_AGE must be zero or positive",

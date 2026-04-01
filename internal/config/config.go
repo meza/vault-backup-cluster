@@ -31,6 +31,7 @@ type Config struct {
 	VaultAddr            string
 	VaultToken           string
 	VaultTokenFile       string
+	VaultCACertFile      string
 	VaultRequestTimeout  time.Duration
 	ConsulAddr           string
 	ConsulToken          string
@@ -55,6 +56,7 @@ func Load() (Config, error) {
 		VaultAddr:            strings.TrimSpace(os.Getenv("VAULT_ADDR")),
 		VaultToken:           strings.TrimSpace(os.Getenv("VAULT_TOKEN")),
 		VaultTokenFile:       strings.TrimSpace(os.Getenv("VAULT_TOKEN_FILE")),
+		VaultCACertFile:      strings.TrimSpace(os.Getenv("VAULT_CA_CERT_FILE")),
 		ConsulAddr:           strings.TrimSpace(os.Getenv("CONSUL_ADDR")),
 		ConsulToken:          strings.TrimSpace(os.Getenv("CONSUL_HTTP_TOKEN")),
 		ConsulTokenFile:      strings.TrimSpace(os.Getenv("CONSUL_HTTP_TOKEN_FILE")),
@@ -140,6 +142,9 @@ func (c Config) validatePaths(problems *[]string) {
 	}
 	if c.BackupLocation != "" && !filepath.IsAbs(c.BackupLocation) {
 		*problems = append(*problems, "BACKUP_LOCATION must be an absolute path")
+	}
+	if c.VaultCACertFile != "" && !filepath.IsAbs(c.VaultCACertFile) {
+		*problems = append(*problems, "VAULT_CA_CERT_FILE must be an absolute path")
 	}
 	if !filepath.IsAbs(c.ScratchDir) {
 		*problems = append(*problems, "SCRATCH_DIR must be an absolute path")

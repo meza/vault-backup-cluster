@@ -2,8 +2,16 @@ package vault
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -52,7 +60,10 @@ func TestSnapshotReadsTokenFileForEachRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTokenSource returned error: %v", err)
 	}
-	client := NewClient(server.URL, time.Minute, source)
+	client, err := NewClient(server.URL, time.Minute, source, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 
 	if _, err := client.Snapshot(context.Background(), io.Discard); err != nil {
 		t.Fatalf("first Snapshot returned error: %v", err)
@@ -78,9 +89,54 @@ func TestHealthAcceptsHealthyVault(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"})
+	client, err := NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if err := client.Health(context.Background()); err != nil {
 		t.Fatalf("Health returned error: %v", err)
+	}
+}
+
+func TestHealthUsesCustomCACertFile(t *testing.T) {
+	caCertPEM, serverTLSCert := generateTestTLSMaterials(t)
+	caPath := filepath.Join(t.TempDir(), "vault-ca.crt")
+	if err := os.WriteFile(caPath, caCertPEM, 0o600); err != nil {
+		t.Fatalf("write ca cert file: %v", err)
+	}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	server.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{serverTLSCert},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	client, err := NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, caPath)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+	if err := client.Health(context.Background()); err != nil {
+		t.Fatalf("Health returned error: %v", err)
+	}
+}
+
+func TestNewClientReturnsCACertErrors(t *testing.T) {
+	_, err := NewClient("https://vault.local", time.Minute, StaticTokenSource{value: "token"}, filepath.Join(t.TempDir(), "missing.crt"))
+	if err == nil || !strings.Contains(err.Error(), "read vault ca cert file") {
+		t.Fatalf("expected missing ca cert error, got %v", err)
+	}
+
+	caPath := filepath.Join(t.TempDir(), "invalid.crt")
+	if writeErr := os.WriteFile(caPath, []byte("not-a-certificate"), 0o600); writeErr != nil {
+		t.Fatalf("write invalid ca cert file: %v", writeErr)
+	}
+	_, err = NewClient("https://vault.local", time.Minute, StaticTokenSource{value: "token"}, caPath)
+	if err == nil || !strings.Contains(err.Error(), "parse vault ca cert file") {
+		t.Fatalf("expected parse ca cert error, got %v", err)
 	}
 }
 
@@ -127,17 +183,26 @@ func TestFileTokenSourceErrors(t *testing.T) {
 }
 
 func TestSnapshotErrorPaths(t *testing.T) {
-	client := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"})
+	client, err := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "create snapshot request") {
 		t.Fatalf("expected request creation error, got %v", err)
 	}
 
-	client = NewClient("http://vault.local", time.Minute, errorTokenSource{err: errors.New("boom")})
+	client, err = NewClient("http://vault.local", time.Minute, errorTokenSource{err: errors.New("boom")}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected token error, got %v", err)
 	}
 
-	client = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom")
 	})
@@ -153,12 +218,18 @@ func TestSnapshotErrorPaths(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if _, err := client.Snapshot(context.Background(), io.Discard); err == nil || !strings.Contains(err.Error(), "status 502") {
 		t.Fatalf("expected non-200 error, got %v", err)
 	}
 
-	client = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusBadGateway,
@@ -176,19 +247,28 @@ func TestSnapshotErrorPaths(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if _, err := client.Snapshot(context.Background(), failingWriter{}); err == nil || !strings.Contains(err.Error(), "stream snapshot response") {
 		t.Fatalf("expected writer error, got %v", err)
 	}
 }
 
 func TestHealthErrorPaths(t *testing.T) {
-	client := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"})
+	client, err := NewClient("://bad", time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if err := client.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "create vault health request") {
 		t.Fatalf("expected request creation error, got %v", err)
 	}
 
-	client = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient("http://vault.local", time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("boom")
 	})
@@ -201,7 +281,10 @@ func TestHealthErrorPaths(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"})
+	client, err = NewClient(server.URL, time.Minute, StaticTokenSource{value: "token"}, "")
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
 	if err := client.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "status 429") {
 		t.Fatalf("expected status error, got %v", err)
 	}
@@ -220,6 +303,62 @@ func TestCloseResponseBodyHandlesNilAndCloseErrors(t *testing.T) {
 	closeResponseBody(nil)
 	closeResponseBody(&http.Response{})
 	closeResponseBody(&http.Response{Body: failingCloseReadCloser{ReadCloser: io.NopCloser(strings.NewReader("payload"))}})
+}
+
+func generateTestTLSMaterials(t *testing.T) ([]byte, tls.Certificate) {
+	t.Helper()
+
+	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate ca key: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "vault-test-ca",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caPrivateKey.PublicKey, caPrivateKey)
+	if err != nil {
+		t.Fatalf("create ca certificate: %v", err)
+	}
+
+	serverPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate server key: %v", err)
+	}
+	serverTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			CommonName: "127.0.0.1",
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:    []string{"localhost"},
+	}
+	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caTemplate, &serverPrivateKey.PublicKey, caPrivateKey)
+	if err != nil {
+		t.Fatalf("create server certificate: %v", err)
+	}
+
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	serverCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverDER})
+	serverKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(serverPrivateKey)})
+
+	serverTLSCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		t.Fatalf("load server key pair: %v", err)
+	}
+
+	return caCertPEM, serverTLSCert
 }
 
 type failingReader struct{}

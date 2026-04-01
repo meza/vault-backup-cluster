@@ -146,6 +146,7 @@ func validConfig() config.Config {
 		LogLevel:             "debug",
 		VaultAddr:            "http://vault.local",
 		VaultToken:           "vault-token",
+		VaultCACertFile:      "",
 		VaultRequestTimeout:  time.Second,
 		ConsulAddr:           "http://consul.local",
 		ConsulLockKey:        "service/leader",
@@ -169,6 +170,7 @@ func setValidEnv(t *testing.T) string {
 	t.Setenv("VAULT_ADDR", "http://127.0.0.1:8200")
 	t.Setenv("VAULT_TOKEN", "vault-token")
 	t.Setenv("VAULT_TOKEN_FILE", "")
+	t.Setenv("VAULT_CA_CERT_FILE", "")
 	t.Setenv("CONSUL_ADDR", "http://127.0.0.1:8500")
 	t.Setenv("CONSUL_HTTP_TOKEN", "")
 	t.Setenv("CONSUL_HTTP_TOKEN_FILE", "")

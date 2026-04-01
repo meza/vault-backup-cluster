@@ -83,7 +83,10 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	vaultClient := newVaultClient(cfg.VaultAddr, cfg.VaultRequestTimeout, vaultTokens)
+	vaultClient, err := newVaultClient(cfg.VaultAddr, cfg.VaultRequestTimeout, vaultTokens, cfg.VaultCACertFile)
+	if err != nil {
+		return nil, err
+	}
 	consulTokens, err := newTokenSource(cfg.ConsulToken, cfg.ConsulTokenFile)
 	if err != nil && cfg.ConsulToken == "" && cfg.ConsulTokenFile == "" {
 		consulTokens = nil

@@ -3,6 +3,8 @@ package vault
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -37,14 +39,24 @@ type FileTokenSource struct {
 	path string
 }
 
-func NewClient(baseURL string, timeout time.Duration, tokens TokenSource) *Client {
-	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		tokens: tokens,
+func NewClient(baseURL string, timeout time.Duration, tokens TokenSource, caCertFile string) (*Client, error) {
+	httpClient := &http.Client{
+		Timeout: timeout,
 	}
+	if caCertFile != "" {
+		tlsConfig, err := loadTLSConfig(caCertFile)
+		if err != nil {
+			return nil, err
+		}
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+	}
+	return &Client{
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		httpClient: httpClient,
+		tokens:     tokens,
+	}, nil
 }
 
 func NewTokenSource(staticToken string, tokenFile string) (TokenSource, error) {
@@ -55,6 +67,27 @@ func NewTokenSource(staticToken string, tokenFile string) (TokenSource, error) {
 		return StaticTokenSource{value: staticToken}, nil
 	}
 	return nil, errors.New("vault token source is required")
+}
+
+func loadTLSConfig(caCertFile string) (*tls.Config, error) {
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system cert pool: %w", err)
+	}
+	if rootCAs == nil {
+		rootCAs = x509.NewCertPool()
+	}
+	caCertPEM, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("read vault ca cert file: %w", err)
+	}
+	if ok := rootCAs.AppendCertsFromPEM(caCertPEM); !ok {
+		return nil, errors.New("parse vault ca cert file: no certificates found")
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    rootCAs,
+	}, nil
 }
 
 func (s StaticTokenSource) Token() (string, error) {
