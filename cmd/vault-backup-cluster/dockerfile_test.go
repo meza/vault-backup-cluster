@@ -43,3 +43,23 @@ func TestDockerfilesProvideCurlHealthcheckSupport(t *testing.T) {
 		})
 	}
 }
+
+func TestReleaseDockerfileUsesTargetPlatformBuildContext(t *testing.T) {
+	t.Parallel()
+
+	content, err := os.ReadFile(filepath.Clean(filepath.Join("..", "..", "Dockerfile.release")))
+	if err != nil {
+		t.Fatalf("read dockerfile: %v", err)
+	}
+
+	dockerfile := string(content)
+
+	for _, expected := range []string{
+		"ARG TARGETPLATFORM",
+		"COPY $TARGETPLATFORM/vault-backup-cluster /vault-backup-cluster",
+	} {
+		if !strings.Contains(dockerfile, expected) {
+			t.Fatalf("expected %q in Dockerfile.release", expected)
+		}
+	}
+}
