@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/meza/vault-backup-cluster/compare/v1.0.1...v1.0.2) (2026-04-01)
+
+### Bug Fixes
+
+* multi-arch release ([5829407](https://github.com/meza/vault-backup-cluster/commit/582940775d058272a61a65d44caca731b687d28b))
+
 ## [1.0.1](https://github.com/meza/vault-backup-cluster/compare/v1.0.0...v1.0.1) (2026-04-01)
 
 ### Bug Fixes
