@@ -1,3 +1,11 @@
+## [1.0.3](https://github.com/meza/vault-backup-cluster/compare/v1.0.2...v1.0.3) (2026-04-01)
+
+### Bug Fixes
+
+* added missing ca cert support ([d7a633f](https://github.com/meza/vault-backup-cluster/commit/d7a633f09f33c2d3168dfe88cfd1e6c4beec4ff4))
+* removed probe files ([32b1c9b](https://github.com/meza/vault-backup-cluster/commit/32b1c9b83aa79f65492cc37f944c865029636f19))
+* windows support ([9914948](https://github.com/meza/vault-backup-cluster/commit/991494851287c2fce8ddfbe7d95c98a9572b7560))
+
 ## [1.0.2](https://github.com/meza/vault-backup-cluster/compare/v1.0.1...v1.0.2) (2026-04-01)
 
 ### Bug Fixes
