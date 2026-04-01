@@ -73,6 +73,29 @@ When `VAULT_ADDR` uses HTTPS with a private CA, set `VAULT_CA_CERT_FILE` so the 
 | `/status` | Returns machine readable operational state including leader status and last backup outcome |
 | `/metrics` | Returns Prometheus compatible text metrics |
 
+## Consul ACL requirements
+
+When ACLs are enabled, the Consul token used by this service only needs the permissions required for the APIs it actually calls.
+
+- `key:write` on the configured `CONSUL_LOCK_KEY`
+- `session:write` for the Consul node where the service runs so it can create and renew the leadership session
+
+The Consul readiness probe calls `/v1/status/leader`. HashiCorp documents that endpoint as requiring no ACL.
+
+An example policy for a node named `node-a` and a lock key of `service/vault-backup/leader` looks like this:
+
+```hcl
+key "service/vault-backup/leader" {
+  policy = "write"
+}
+
+session "node-a" {
+  policy = "write"
+}
+```
+
+If you scope the token more broadly, `key_prefix` and `session_prefix` rules can be used instead, but the application does not require any additional Consul ACL capabilities such as `service:write`, `node:write`, or `acl:write`.
+
 ## Build and test
 
 ```sh
