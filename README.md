@@ -21,7 +21,7 @@ Every instance competes for the same Consul lock key. The leader keeps the lock 
 
 Each backup run does this work.
 
-1. Confirms the destination is writable.
+1. Validates that the destination path is usable.
 2. Streams a Vault snapshot into a scratch file.
 3. Calculates the snapshot size and SHA256 checksum while streaming.
 4. Uploads the artifact to the configured backup location.
@@ -30,6 +30,7 @@ Each backup run does this work.
 7. Updates in memory status and metrics.
 
 If leadership is lost then the active run is canceled through context propagation. If Vault, Consul, or the destination is unavailable then the node reports that state through `/status`, `/readyz`, and `/metrics`.
+Permission or write failures in the destination surface during the backup run itself and are reported through backup failure status and logs.
 
 ## Configuration
 
@@ -68,7 +69,7 @@ When `VAULT_ADDR` uses HTTPS with a private CA, set `VAULT_CA_CERT_FILE` so the 
 | Endpoint | Behavior |
 | --- | --- |
 | `/healthz` | Returns process health |
-| `/readyz` | Returns `200` when Vault, Consul, and the backup destination last probed successfully |
+| `/readyz` | Returns `200` when Vault, Consul, and the backup destination path last probed successfully |
 | `/status` | Returns machine readable operational state including leader status and last backup outcome |
 | `/metrics` | Returns Prometheus compatible text metrics |
 

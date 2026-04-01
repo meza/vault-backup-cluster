@@ -29,6 +29,7 @@ var (
 	createTempFile  = osCreateTempFile
 	removeFile      = os.Remove
 	renameFile      = os.Rename
+	statPath        = os.Stat
 	walkDir         = filepath.WalkDir
 	relativePath    = filepath.Rel
 	closeSourceFile = func(file *os.File) error { return file.Close() }
@@ -51,19 +52,15 @@ func (d *FileDestination) Check(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := makeDir(d.root, 0o750); err != nil {
-		return fmt.Errorf("create backup location: %w", err)
-	}
-	probe, err := createTempFile(d.root, ".probe-*")
+	info, err := statPath(d.root)
 	if err != nil {
-		return fmt.Errorf("create probe file: %w", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat backup location: %w", err)
 	}
-	name := probe.Name()
-	if err := probe.Close(); err != nil {
-		return fmt.Errorf("close probe file: %w", err)
-	}
-	if err := removeFile(name); err != nil {
-		return fmt.Errorf("remove probe file: %w", err)
+	if !info.IsDir() {
+		return fmt.Errorf("backup location is not a directory: %s", d.root)
 	}
 	return nil
 }

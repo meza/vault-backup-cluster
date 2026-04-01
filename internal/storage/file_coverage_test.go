@@ -67,6 +67,7 @@ func restoreStorageHooks() {
 	createTempFile = osCreateTempFile
 	removeFile = os.Remove
 	renameFile = os.Rename
+	statPath = os.Stat
 	walkDir = filepath.WalkDir
 	relativePath = filepath.Rel
 	closeSourceFile = func(file *os.File) error { return file.Close() }
@@ -83,41 +84,32 @@ func TestCheck(t *testing.T) {
 		t.Fatalf("expected canceled context, got %v", err)
 	}
 
-	makeDir = func(string, os.FileMode) error {
-		return errors.New("boom")
-	}
-	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "create backup location") {
-		t.Fatalf("expected mkdir error, got %v", err)
-	}
-
-	restoreStorageHooks()
-	createTempFile = func(string, string) (atomicFile, error) {
+	statPath = func(string) (os.FileInfo, error) {
 		return nil, errors.New("boom")
 	}
-	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "create probe file") {
-		t.Fatalf("expected probe error, got %v", err)
+	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "stat backup location") {
+		t.Fatalf("expected stat error, got %v", err)
 	}
 
 	restoreStorageHooks()
-	createTempFile = func(string, string) (atomicFile, error) {
-		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "probe"), closeErr: errors.New("boom")}, nil
-	}
-	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "close probe file") {
-		t.Fatalf("expected probe close error, got %v", err)
-	}
-
-	restoreStorageHooks()
-	createTempFile = func(string, string) (atomicFile, error) {
-		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "probe")}, nil
-	}
-	removeFile = func(string) error {
-		return errors.New("boom")
-	}
-	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "remove probe file") {
-		t.Fatalf("expected probe remove error, got %v", err)
+	missingPath := filepath.Join(t.TempDir(), "missing")
+	destination = NewFileDestination(missingPath)
+	if err := destination.Check(context.Background()); err != nil {
+		t.Fatalf("expected missing root to be allowed, got %v", err)
 	}
 
 	restoreStorageHooks()
+	filePath := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(filePath, []byte("data"), 0o600); err != nil {
+		t.Fatalf("write regular file: %v", err)
+	}
+	destination = NewFileDestination(filePath)
+	if err := destination.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("expected not a directory error, got %v", err)
+	}
+
+	restoreStorageHooks()
+	destination = NewFileDestination(t.TempDir())
 	if err := destination.Check(context.Background()); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
