@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/meza/vault-backup-cluster/compare/v1.0.0...v1.0.1) (2026-04-01)
+
+### Bug Fixes
+
+* add curl based docker healthchecks ([73aade1](https://github.com/meza/vault-backup-cluster/commit/73aade1605894869d9d5d8d019ea55796c782781))
+
 ## 1.0.0 (2026-03-30)
 
 ### Features
