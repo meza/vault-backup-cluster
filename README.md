@@ -95,8 +95,7 @@ The image is built from `Dockerfile` and starts the single static binary.
 
 ## CI and release automation
 
-- `.github/workflows/ci.yml` runs lint, tests, binary build, govulncheck, go-licenses, and a Docker build on pull requests and pushes to `main`
-- `.github/workflows/release.yml` runs semantic-release on pushes to `main` and calls GoReleaser to publish binaries, checksums, and a multi-arch Docker release image for linux/amd64 and linux/arm64
+- `.github/workflows/ci.yml` runs semantic-release on pushes to `main` and calls GoReleaser to publish binaries, checksums, and a multi-arch Docker release image for linux/amd64 and linux/arm64
 - `.golangci.yml` defines the repository lint policy
 - `.releaserc.yml` uses the `conventionalcommits` preset for semantic-release
 - `.goreleaser.yml` publishes release artifacts and Docker images with GoReleaser
