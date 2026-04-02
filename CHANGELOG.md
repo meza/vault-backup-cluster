@@ -1,3 +1,9 @@
+## [1.0.4](https://github.com/meza/vault-backup-cluster/compare/v1.0.3...v1.0.4) (2026-04-02)
+
+### Bug Fixes
+
+* added election debugging ([be9e0a0](https://github.com/meza/vault-backup-cluster/commit/be9e0a0873def7c8789dc94cc7bf817c52398c1c))
+
 ## [1.0.3](https://github.com/meza/vault-backup-cluster/compare/v1.0.2...v1.0.3) (2026-04-01)
 
 ### Bug Fixes
