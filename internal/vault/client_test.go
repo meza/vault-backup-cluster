@@ -140,6 +140,47 @@ func TestNewClientReturnsCACertErrors(t *testing.T) {
 	}
 }
 
+func TestLoadTLSConfigReturnsSystemCertPoolError(t *testing.T) {
+	originalLoadSystemCertPool := loadSystemCertPool
+	loadSystemCertPool = func() systemCertPoolResult {
+		return systemCertPoolResult{
+			err: errors.New("boom"),
+		}
+	}
+	t.Cleanup(func() {
+		loadSystemCertPool = originalLoadSystemCertPool
+	})
+
+	_, err := loadTLSConfig(filepath.Join(t.TempDir(), "missing.crt"))
+	if err == nil || !strings.Contains(err.Error(), "load system cert pool") {
+		t.Fatalf("expected system cert pool error, got %v", err)
+	}
+}
+
+func TestLoadTLSConfigCreatesCertPoolWhenSystemPoolIsNil(t *testing.T) {
+	originalLoadSystemCertPool := loadSystemCertPool
+	loadSystemCertPool = func() systemCertPoolResult {
+		return systemCertPoolResult{}
+	}
+	t.Cleanup(func() {
+		loadSystemCertPool = originalLoadSystemCertPool
+	})
+
+	caCertPEM, _ := generateTestTLSMaterials(t)
+	caPath := filepath.Join(t.TempDir(), "vault-ca.crt")
+	if err := os.WriteFile(caPath, caCertPEM, 0o600); err != nil {
+		t.Fatalf("write ca cert file: %v", err)
+	}
+
+	tlsConfig, err := loadTLSConfig(caPath)
+	if err != nil {
+		t.Fatalf("expected loadTLSConfig success, got %v", err)
+	}
+	if tlsConfig.RootCAs == nil {
+		t.Fatal("expected non-nil root CAs")
+	}
+}
+
 func TestNewTokenSource(t *testing.T) {
 	source, err := NewTokenSource(" static-token ", "")
 	if err != nil {

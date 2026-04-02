@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -95,10 +96,13 @@ type Elector struct {
 	nodeID     string
 	sessionTTL time.Duration
 	lockWait   time.Duration
+	logger     *slog.Logger
 }
 
-func NewElector(client *consulapi.Client, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
-	return buildElector(consulLockClient{client: client}, lockKey, nodeID, sessionTTL, lockWait)
+func NewElector(client *consulapi.Client, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration, logger *slog.Logger) *Elector {
+	elector := buildElector(consulLockClient{client: client}, lockKey, nodeID, sessionTTL, lockWait)
+	elector.logger = logger
+	return elector
 }
 
 func buildElector(client lockClient, lockKey string, nodeID string, sessionTTL time.Duration, lockWait time.Duration) *Elector {
@@ -112,6 +116,7 @@ func (e *Elector) Run(ctx context.Context, onLeadership func(context.Context) er
 			return nil
 		default:
 		}
+		e.logDebug("attempting consul leadership acquisition")
 		lock, err := e.client.LockOpts(&consulapi.LockOptions{
 			Key:          e.lockKey,
 			Value:        []byte(e.nodeID),
@@ -129,12 +134,14 @@ func (e *Elector) Run(ctx context.Context, onLeadership func(context.Context) er
 		if leadershipLost == nil {
 			return nil
 		}
+		e.logDebug("consul leadership acquired")
 		leaderCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			select {
 			case <-leadershipLost:
+				e.logDebug("consul leadership lost")
 				cancel()
 			case <-leaderCtx.Done():
 			}
@@ -145,10 +152,18 @@ func (e *Elector) Run(ctx context.Context, onLeadership func(context.Context) er
 		if err := lock.Unlock(); err != nil && !errors.Is(err, consulapi.ErrLockNotHeld) {
 			return fmt.Errorf("release consul lock: %w", err)
 		}
+		e.logDebug("consul lock released")
 		if callbackErr != nil && !errors.Is(callbackErr, context.Canceled) {
 			return callbackErr
 		}
 	}
+}
+
+func (e *Elector) logDebug(message string) {
+	if e.logger == nil {
+		return
+	}
+	e.logger.Debug(message)
 }
 
 func (c consulLockClient) LockOpts(opts *consulapi.LockOptions) (lockHandle, error) {

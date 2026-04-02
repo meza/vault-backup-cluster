@@ -102,7 +102,7 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	elector := newElector(consulClient, cfg.ConsulLockKey, cfg.NodeID, cfg.ConsulSessionTTL, cfg.ConsulLockWait)
+	elector := newElector(consulClient, cfg.ConsulLockKey, cfg.NodeID, cfg.ConsulSessionTTL, cfg.ConsulLockWait, logger)
 
 	app := &App{
 		cfg:          cfg,

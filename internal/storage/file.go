@@ -23,6 +23,10 @@ func osCreateTempFile(dir string, pattern string) (atomicFile, error) {
 	return os.CreateTemp(dir, pattern)
 }
 
+func defaultCloseSourceFile(file *os.File) error {
+	return file.Close()
+}
+
 var (
 	makeDir         = os.MkdirAll
 	openFile        = os.Open
@@ -32,7 +36,7 @@ var (
 	statPath        = os.Stat
 	walkDir         = filepath.WalkDir
 	relativePath    = filepath.Rel
-	closeSourceFile = func(file *os.File) error { return file.Close() }
+	closeSourceFile = defaultCloseSourceFile
 )
 
 type Object struct {

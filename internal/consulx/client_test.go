@@ -1,9 +1,11 @@
 package consulx
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -66,6 +68,98 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func newBufferedDebugLogger() (*bytes.Buffer, *slog.Logger) {
+	logBuffer := &bytes.Buffer{}
+	logger := slog.New(slog.NewTextHandler(logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return logBuffer, logger
+}
+
+func TestElectorRunLogsLeadershipAcquisitionAttemptAtDebugLevel(t *testing.T) {
+	logBuffer, logger := newBufferedDebugLogger()
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector.logger = logger
+
+	err := elector.Run(context.Background(), func(context.Context) error {
+		t.Fatal("callback should not be called when no leadership channel is returned")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(logBuffer.String(), "attempting consul leadership acquisition") {
+		t.Fatalf("expected acquisition attempt log, got %q", logBuffer.String())
+	}
+}
+
+func TestElectorRunLogsLeadershipAcquiredAtDebugLevel(t *testing.T) {
+	logBuffer, logger := newBufferedDebugLogger()
+	lost := make(chan struct{})
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{leadershipLost: lost}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector.logger = logger
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := elector.Run(ctx, func(leaderCtx context.Context) error {
+		cancel()
+		<-leaderCtx.Done()
+		return context.Canceled
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(logBuffer.String(), "consul leadership acquired") {
+		t.Fatalf("expected acquired log, got %q", logBuffer.String())
+	}
+}
+
+func TestElectorRunLogsLeadershipLostAtDebugLevel(t *testing.T) {
+	logBuffer, logger := newBufferedDebugLogger()
+	lost := make(chan struct{})
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{leadershipLost: lost}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector.logger = logger
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := elector.Run(ctx, func(leaderCtx context.Context) error {
+		close(lost)
+		<-leaderCtx.Done()
+		cancel()
+		return context.Canceled
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(logBuffer.String(), "consul leadership lost") {
+		t.Fatalf("expected lost log, got %q", logBuffer.String())
+	}
+}
+
+func TestElectorRunLogsLockReleasedAtDebugLevel(t *testing.T) {
+	logBuffer, logger := newBufferedDebugLogger()
+	lost := make(chan struct{})
+	elector := buildElector(&fakeLockClient{lock: &fakeLock{leadershipLost: lost}}, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector.logger = logger
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := elector.Run(ctx, func(leaderCtx context.Context) error {
+		close(lost)
+		<-leaderCtx.Done()
+		cancel()
+		return context.Canceled
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(logBuffer.String(), "consul lock released") {
+		t.Fatalf("expected lock released log, got %q", logBuffer.String())
+	}
 }
 
 func TestCheckStatusRejectsEmptyLeader(t *testing.T) {
@@ -223,13 +317,27 @@ func TestNewElectorUsesConsulLockClientWrapper(t *testing.T) {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
 
-	elector := NewElector(client, "lock", "node-a", 15*time.Second, 10*time.Second)
+	elector := NewElector(client, "lock", "node-a", 15*time.Second, 10*time.Second, testLogger())
 	lock, err := elector.client.LockOpts(&consulapi.LockOptions{Key: "lock"})
 	if err != nil {
 		t.Fatalf("LockOpts returned error: %v", err)
 	}
 	if lock == nil {
 		t.Fatal("expected wrapped lock handle")
+	}
+}
+
+func TestNewElectorStoresLogger(t *testing.T) {
+	client, err := NewClient("http://127.0.0.1:8500", nil)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	logger := testLogger()
+	elector := NewElector(client, "lock", "node-a", 15*time.Second, 10*time.Second, logger)
+
+	if elector.logger != logger {
+		t.Fatal("expected logger to be stored on elector")
 	}
 }
 

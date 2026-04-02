@@ -238,6 +238,26 @@ func TestNewReturnsVaultTokenError(t *testing.T) {
 	}
 }
 
+func TestNewReturnsVaultClientError(t *testing.T) {
+	restoreAppHooks()
+	t.Cleanup(restoreAppHooks)
+
+	loadConfig = func() (config.Config, error) {
+		return validConfig(), nil
+	}
+	newTokenSource = func(string, string) (vault.TokenSource, error) {
+		return fakeVaultTokenSource{}, nil
+	}
+	newVaultClient = func(string, time.Duration, vault.TokenSource, string) (*vault.Client, error) {
+		return nil, errors.New("boom")
+	}
+
+	_, err := New()
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected vault client error, got %v", err)
+	}
+}
+
 func TestNewReturnsConsulTokenErrorWhenConfigured(t *testing.T) {
 	restoreAppHooks()
 	t.Cleanup(restoreAppHooks)
@@ -277,6 +297,26 @@ func TestNewReturnsConsulClientError(t *testing.T) {
 	_, err := New()
 	if !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
+	}
+}
+
+func TestNewPassesLoggerToElector(t *testing.T) {
+	restoreAppHooks()
+	t.Cleanup(restoreAppHooks)
+	setValidEnv(t)
+
+	var receivedLogger *slog.Logger
+	newElector = func(_ *consulapi.Client, _ string, _ string, _ time.Duration, _ time.Duration, logger *slog.Logger) *consulx.Elector {
+		receivedLogger = logger
+		return consulx.NewElector(healthyConsulClient(t), "lock", "node-a", time.Second, time.Second, logger)
+	}
+
+	_, err := New()
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if receivedLogger == nil {
+		t.Fatal("expected logger to be passed to elector construction")
 	}
 }
 

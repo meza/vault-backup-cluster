@@ -165,6 +165,74 @@ func TestUploadFileErrorPaths(t *testing.T) {
 	}
 }
 
+func TestUploadFileCopiesSourceContent(t *testing.T) {
+	restoreStorageHooks()
+	t.Cleanup(restoreStorageHooks)
+
+	root := t.TempDir()
+	destination := NewFileDestination(root)
+	sourcePath := filepath.Join(t.TempDir(), "source.snap")
+	sourceContent := []byte("snapshot-data")
+	if err := os.WriteFile(sourcePath, sourceContent, 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	if err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath); err != nil {
+		t.Fatalf("expected upload success, got %v", err)
+	}
+
+	gotContent, err := os.ReadFile(filepath.Join(root, "prod", "file.snap"))
+	if err != nil {
+		t.Fatalf("read uploaded artifact: %v", err)
+	}
+	if string(gotContent) != string(sourceContent) {
+		t.Fatalf("expected uploaded content %q, got %q", string(sourceContent), string(gotContent))
+	}
+}
+
+func TestDefaultCloseSourceFileClosesFile(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "source-*")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+
+	if err := defaultCloseSourceFile(file); err != nil {
+		t.Fatalf("expected close success, got %v", err)
+	}
+}
+
+func TestUploadFileReturnsJoinedWriteAndCloseErrors(t *testing.T) {
+	restoreStorageHooks()
+	t.Cleanup(restoreStorageHooks)
+
+	destination := NewFileDestination(t.TempDir())
+	sourcePath := filepath.Join(t.TempDir(), "source.snap")
+	if err := os.WriteFile(sourcePath, []byte("data"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	createTempFile = func(string, string) (atomicFile, error) {
+		return &fakeAtomicTempFile{name: filepath.Join(t.TempDir(), "temp"), writeErr: errors.New("write boom")}, nil
+	}
+	closeSourceFile = func(file *os.File) error {
+		if err := file.Close(); err != nil {
+			t.Fatalf("close source file in hook: %v", err)
+		}
+		return errors.New("close boom")
+	}
+
+	err := destination.UploadFile(context.Background(), "prod/file.snap", sourcePath)
+	if err == nil {
+		t.Fatal("expected joined error")
+	}
+	if !strings.Contains(err.Error(), "write destination content: write boom") {
+		t.Fatalf("expected write error in joined error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "close source artifact: close boom") {
+		t.Fatalf("expected close error in joined error, got %v", err)
+	}
+}
+
 func TestUploadBytesErrorPaths(t *testing.T) {
 	restoreStorageHooks()
 	t.Cleanup(restoreStorageHooks)

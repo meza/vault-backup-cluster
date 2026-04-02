@@ -39,6 +39,19 @@ type FileTokenSource struct {
 	path string
 }
 
+type systemCertPoolResult struct {
+	pool *x509.CertPool
+	err  error
+}
+
+var loadSystemCertPool = func() systemCertPoolResult {
+	pool, err := x509.SystemCertPool()
+	return systemCertPoolResult{
+		pool: pool,
+		err:  err,
+	}
+}
+
 func NewClient(baseURL string, timeout time.Duration, tokens TokenSource, caCertFile string) (*Client, error) {
 	httpClient := &http.Client{
 		Timeout: timeout,
@@ -70,10 +83,11 @@ func NewTokenSource(staticToken string, tokenFile string) (TokenSource, error) {
 }
 
 func loadTLSConfig(caCertFile string) (*tls.Config, error) {
-	rootCAs, err := x509.SystemCertPool()
-	if err != nil {
-		return nil, fmt.Errorf("load system cert pool: %w", err)
+	systemPool := loadSystemCertPool()
+	if systemPool.err != nil {
+		return nil, fmt.Errorf("load system cert pool: %w", systemPool.err)
 	}
+	rootCAs := systemPool.pool
 	if rootCAs == nil {
 		rootCAs = x509.NewCertPool()
 	}
