@@ -1,3 +1,13 @@
+## [1.1.0](https://github.com/meza/vault-backup-cluster/compare/v1.0.4...v1.1.0) (2026-04-22)
+
+### Features
+
+* added structured logging ([fef4df1](https://github.com/meza/vault-backup-cluster/commit/fef4df1e7a99bb49d1661c286256ef7f0cda13e7))
+
+### Bug Fixes
+
+* govulncheck ([b283fa5](https://github.com/meza/vault-backup-cluster/commit/b283fa58be89dc8959e70379ad879f41c605b911))
+
 ## [1.0.4](https://github.com/meza/vault-backup-cluster/compare/v1.0.3...v1.0.4) (2026-04-02)
 
 ### Bug Fixes
