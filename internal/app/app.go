@@ -76,7 +76,7 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}))
+	logger := newLogger(os.Stdout, cfg.LogFormat, cfg.LogLevel)
 	stateStore := state.New(cfg.NodeID)
 
 	vaultTokens, err := newTokenSource(cfg.VaultToken, cfg.VaultTokenFile)
@@ -213,6 +213,16 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+func newLogger(writer *os.File, format string, level string) *slog.Logger {
+	handlerOptions := &slog.HandlerOptions{Level: parseLogLevel(level)}
+	switch strings.ToLower(format) {
+	case "text":
+		return slog.New(slog.NewTextHandler(writer, handlerOptions))
+	default:
+		return slog.New(slog.NewJSONHandler(writer, handlerOptions))
 	}
 }
 

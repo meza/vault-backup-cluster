@@ -30,6 +30,9 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	if cfg.NodeID != "node-a" {
 		t.Fatal("expected node id to be parsed")
 	}
+	if cfg.LogFormat != "json" {
+		t.Fatalf("expected default log format json, got %q", cfg.LogFormat)
+	}
 	if cfg.RetentionCount != 4 {
 		t.Fatalf("expected retention count 4, got %d", cfg.RetentionCount)
 	}
@@ -128,6 +131,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		RetentionCount:       -1,
 		RetentionMaxAge:      -time.Second,
 		ProbeInterval:        0,
+		LogFormat:            "pretty",
 		VaultCACertFile:      "relative",
 		ScratchDir:           "relative",
 	}
@@ -150,6 +154,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		"RETENTION_COUNT must be zero or greater",
 		"RETENTION_MAX_AGE must be zero or positive",
 		"PROBE_INTERVAL must be greater than zero",
+		"LOG_FORMAT must be one of: json, text",
 		"ARTIFACT_NAME_TEMPLATE must be non-empty",
 	} {
 		if !strings.Contains(err.Error(), fragment) {
@@ -229,5 +234,19 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 	if got := firstNonEmpty(" ", "\t"); got != "" {
 		t.Fatalf("expected empty string, got %q", got)
+	}
+}
+
+func TestLoadParsesLogFormat(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("LOG_FORMAT", "text")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.LogFormat != "text" {
+		t.Fatalf("expected text log format, got %q", cfg.LogFormat)
 	}
 }

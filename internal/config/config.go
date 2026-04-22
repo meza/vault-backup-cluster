@@ -12,6 +12,7 @@ import (
 
 const (
 	defaultHTTPBindAddress  = ":8080"
+	defaultLogFormat        = "json"
 	defaultLogLevel         = "info"
 	defaultSessionTTL       = 15 * time.Second
 	defaultLockWait         = 10 * time.Second
@@ -27,6 +28,7 @@ var osHostname = os.Hostname
 type Config struct {
 	NodeID               string
 	HTTPBindAddress      string
+	LogFormat            string
 	LogLevel             string
 	VaultAddr            string
 	VaultToken           string
@@ -52,6 +54,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		NodeID:               firstNonEmpty(os.Getenv("NODE_ID"), hostname()),
 		HTTPBindAddress:      firstNonEmpty(os.Getenv("HTTP_BIND_ADDRESS"), defaultHTTPBindAddress),
+		LogFormat:            firstNonEmpty(strings.ToLower(os.Getenv("LOG_FORMAT")), defaultLogFormat),
 		LogLevel:             firstNonEmpty(strings.ToLower(os.Getenv("LOG_LEVEL")), defaultLogLevel),
 		VaultAddr:            strings.TrimSpace(os.Getenv("VAULT_ADDR")),
 		VaultToken:           strings.TrimSpace(os.Getenv("VAULT_TOKEN")),
@@ -103,6 +106,9 @@ func (c Config) Validate() error {
 	c.validateRetention(&problems)
 	if c.ProbeInterval <= 0 {
 		problems = append(problems, "PROBE_INTERVAL must be greater than zero")
+	}
+	if c.LogFormat != "json" && c.LogFormat != "text" {
+		problems = append(problems, "LOG_FORMAT must be one of: json, text")
 	}
 	if strings.TrimSpace(c.ArtifactNameTemplate) == "" {
 		problems = append(problems, "ARTIFACT_NAME_TEMPLATE must be non-empty")

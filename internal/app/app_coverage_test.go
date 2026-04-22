@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,6 +144,7 @@ func validConfig() config.Config {
 	return config.Config{
 		NodeID:               "node-a",
 		HTTPBindAddress:      ":0",
+		LogFormat:            "json",
 		LogLevel:             "debug",
 		VaultAddr:            "http://vault.local",
 		VaultToken:           "vault-token",
@@ -166,6 +168,7 @@ func setValidEnv(t *testing.T) string {
 	root := t.TempDir()
 	t.Setenv("NODE_ID", "node-a")
 	t.Setenv("HTTP_BIND_ADDRESS", ":0")
+	t.Setenv("LOG_FORMAT", "json")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("VAULT_ADDR", "http://127.0.0.1:8200")
 	t.Setenv("VAULT_TOKEN", "vault-token")
@@ -640,6 +643,18 @@ func TestParseLogLevel(t *testing.T) {
 		if got := parseLogLevel(input); got != expected {
 			t.Fatalf("expected %v for %q, got %v", expected, input, got)
 		}
+	}
+}
+
+func TestNewLoggerUsesConfiguredFormat(t *testing.T) {
+	textLogger := newLogger(os.Stdout, "text", "info")
+	if _, ok := textLogger.Handler().(*slog.TextHandler); !ok {
+		t.Fatalf("expected text handler, got %T", textLogger.Handler())
+	}
+
+	jsonLogger := newLogger(os.Stdout, "json", "info")
+	if _, ok := jsonLogger.Handler().(*slog.JSONHandler); !ok {
+		t.Fatalf("expected json handler, got %T", jsonLogger.Handler())
 	}
 }
 

@@ -40,6 +40,7 @@ All configuration is supplied through environment variables.
 | --- | --- | --- | --- |
 | `NODE_ID` | No | Hostname | Stable node identity written into leadership and metadata |
 | `HTTP_BIND_ADDRESS` | No | `:8080` | Bind address for health, status, and metrics |
+| `LOG_FORMAT` | No | `json` | Structured log format. Supported values: `json`, `text` |
 | `LOG_LEVEL` | No | `info` | Structured log level |
 | `VAULT_ADDR` | Yes | | Local Vault endpoint exposed through Envoy |
 | `VAULT_TOKEN` | One of token or token file | | Static Vault token |
