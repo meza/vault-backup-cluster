@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /out/vault-backup-cluster ./cmd/vault-backup-cluster
 
-FROM alpine:3.21@sha256:f21d2abb8dcf8821f994c6bb13202f0f87efcbf9a74558913e4e4645f0f453da
+FROM alpine:3.21@sha256:81ec32e1e073303f1591af7725ca32446d44d12907c1f4e2851a95031faaec99
 RUN apk add --no-cache ca-certificates curl
 COPY --from=builder /out/vault-backup-cluster /vault-backup-cluster
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
