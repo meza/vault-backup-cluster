@@ -1,4 +1,4 @@
-FROM golang:1.25.9@sha256:8a7adc288b77e9b787cd2695029eb54d10ae80571b21d44fed68d067ad0a9c96 AS builder
+FROM golang:1.27.0@sha256:4013ae0f9e7994f8535c58c811f8f863fbed38b72e0d51e6592156f758d66146 AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
