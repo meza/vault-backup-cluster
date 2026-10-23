@@ -1,4 +1,4 @@
-FROM alpine:3.21@sha256:81ec32e1e073303f1591af7725ca32446d44d12907c1f4e2851a95031faaec99
+FROM alpine:3.21@sha256:ee16d92f96db08d9d2d07da48555a27f3a69d8f0759021dbc601195ed0d2b5bd
 RUN apk add --no-cache ca-certificates curl
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/vault-backup-cluster /vault-backup-cluster
